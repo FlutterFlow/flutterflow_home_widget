@@ -111,3 +111,7 @@ dependencies:
 
 The generated native code and the Dart plugin it talks to are one unit, so
 an app is regenerated whole when it moves to a new version.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
