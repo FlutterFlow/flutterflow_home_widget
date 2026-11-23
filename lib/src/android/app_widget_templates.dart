@@ -265,7 +265,18 @@ class FFHomeWidgetConfigureActivity : Activity() {
 
     private fun done(id: Int, definition: FFHomeWidgetDefinition, choice: String?) {
         FFHomeWidgetStore.choose(this, id, choice)
-        FFHomeWidgetRenderer.render(this, AppWidgetManager.getInstance(this), intArrayOf(id), definition.key)
+        val manager = AppWidgetManager.getInstance(this)
+        FFHomeWidgetRenderer.render(this, manager, intArrayOf(id), definition.key)
+        // A URL that reads the choice's values fetched nothing for it yet:
+        // the copy fetched when it was placed, before it had a choice.
+        if (definition.refresh?.keys?.isNotEmpty() == true) {
+            val ctx = applicationContext
+            Thread {
+                if (FFHomeWidgetFetcher.fetch(ctx, definition, choice)) {
+                    FFHomeWidgetRenderer.render(ctx, manager, intArrayOf(id), definition.key)
+                }
+            }.start()
+        }
         setResult(RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id))
         finish()
     }
@@ -377,7 +388,7 @@ String _providerInfo(HomeWidgetDefinition definition) {
 /// widget by its provider class).
 /// The Kotlin `refresh = FFHomeWidgetRefresh(...)` argument of [plan], or
 /// nothing.
-String _kotlinRefresh(HomeWidgetRefreshPlan? plan) {
+String _kotlinRefresh(HomeWidgetRefreshPlan? plan, List<String> keys) {
   if (plan == null) {
     return '';
   }
@@ -392,8 +403,11 @@ String _kotlinRefresh(HomeWidgetRefreshPlan? plan) {
             JsonIndex(:final index) => '$index',
           }).join(', ')}))',
   ];
+  final keysCode = keys.isEmpty
+      ? ''
+      : ', listOf(${keys.map(kotlinString).join(', ')})';
   return '\n            refresh = FFHomeWidgetRefresh(${kotlinString(plan.url)}, '
-      'mapOf($headers), listOf(${values.join(', ')})),';
+      'mapOf($headers), listOf(${values.join(', ')})$keysCode),';
 }
 
 /// The native name of a fetched value's type.
@@ -447,7 +461,7 @@ String homeWidgetKotlinDefinitions(
             small = ${binder(HomeWidgetSize.small)},
             medium = ${binder(HomeWidgetSize.medium)},
             large = ${binder(HomeWidgetSize.large)},
-            provider = $provider::class.java,${_kotlinRefresh(definition.refresh)}${_kotlinChoices(definition)}
+            provider = $provider::class.java,${_kotlinRefresh(definition.refresh, definition.refresh?.urlKeys([for (final v in definition.values) v.key]) ?? const [])}${_kotlinChoices(definition)}
         ),''');
     classes.add('''
 
@@ -504,6 +518,11 @@ internal class FFHomeWidgetRefresh(
     val url: String,
     val headers: Map<String, String>,
     val values: List<FFFetchedValue>,
+    /**
+     * The values the URL reads, as `{key}`. A URL that reads any is fetched
+     * for each choice on its own, and stores what it fetched for that choice.
+     */
+    val keys: List<String> = emptyList(),
 )
 
 /**
@@ -525,8 +544,11 @@ String _kotlinPlugin() =>
     '''
 package $_pkg
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
@@ -535,9 +557,11 @@ import io.flutter.embedding.engine.renderer.FlutterUiDisplayListener
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.PluginRegistry
 import io.flutter.plugin.common.MethodChannel
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
- * Method channel `$kHomeWidgetChannelName`: $kHomeWidgetMethodIsSupported, $kHomeWidgetMethodUpdate, $kHomeWidgetMethodClear.
+ * Method channel `$kHomeWidgetChannelName`: ${kHomeWidgetMethods.join(', ')}.
  * Generated from the channel contract; do not edit by hand.
  *
  * Stores a widget's values in SharedPreferences and redraws every copy of
@@ -625,9 +649,22 @@ class $kHomeWidgetPluginClass :
             result.error("unavailable", "Not attached", null)
             return
         }
-        if (call.method == "$kHomeWidgetMethodIsSupported") {
-            result.success(true)
-            return
+        when (call.method) {
+            "$kHomeWidgetMethodIsSupported" -> {
+                result.success(true)
+                return
+            }
+            "$kHomeWidgetMethodIsPinSupported" -> {
+                result.success(
+                    Build.VERSION.SDK_INT >= 26 &&
+                        AppWidgetManager.getInstance(ctx)?.isRequestPinAppWidgetSupported == true,
+                )
+                return
+            }
+            "$kHomeWidgetMethodPlacedWidgets" -> {
+                result.success(FFHomeWidgetRenderer.placed(ctx))
+                return
+            }
         }
         val key = call.argument<String>("$kHomeWidgetArgDefinitionKey")
         if (key.isNullOrEmpty()) {
@@ -642,8 +679,17 @@ class $kHomeWidgetPluginClass :
                 for ((k, v) in raw) {
                     if (v is String) values[k] = v
                 }
+                val schedule = JSONArray()
+                for (entry in call.argument<List<Map<String, Any?>>>("$kHomeWidgetArgSchedule") ?: emptyList()) {
+                    val at = (entry["$kHomeWidgetScheduleAt"] as? Number)?.toLong() ?: continue
+                    val scheduled = JSONObject()
+                    for ((k, v) in (entry["$kHomeWidgetScheduleValues"] as? Map<*, *>) ?: emptyMap<Any, Any>()) {
+                        if (k is String && v is String) scheduled.put(k, v)
+                    }
+                    schedule.put(JSONObject().put("$kHomeWidgetScheduleAt", at).put("$kHomeWidgetScheduleValues", scheduled))
+                }
                 val stored = if (choice == null) {
-                    FFHomeWidgetStore.write(ctx, key, values)
+                    FFHomeWidgetStore.write(ctx, key, values, schedule)
                 } else {
                     // A choice's own values, and the choice in the picker.
                     val choices = HashMap(FFHomeWidgetStore.read(ctx, FFHomeWidgetStore.choicesKey(key)) ?: emptyMap())
@@ -654,10 +700,18 @@ class $kHomeWidgetPluginClass :
                         choices[choice] = choice
                     }
                     FFHomeWidgetStore.write(ctx, FFHomeWidgetStore.choicesKey(key), choices)
-                    FFHomeWidgetStore.write(ctx, FFHomeWidgetStore.choiceKey(key, choice), values)
+                    FFHomeWidgetStore.write(ctx, FFHomeWidgetStore.choiceKey(key, choice), values, schedule)
                 }
                 FFHomeWidgetRenderer.renderAll(ctx, key)
                 result.success(stored)
+            }
+            "$kHomeWidgetMethodRequestPin" -> {
+                val definition = FFHomeWidgetDefinitions.all[key]
+                val manager = AppWidgetManager.getInstance(ctx)
+                val asked = definition != null && manager != null && Build.VERSION.SDK_INT >= 26 &&
+                    manager.isRequestPinAppWidgetSupported &&
+                    manager.requestPinAppWidget(ComponentName(ctx, definition.provider), null, null)
+                result.success(asked)
             }
             "$kHomeWidgetMethodClear" -> {
                 if (choice == null) {
@@ -850,26 +904,66 @@ internal object FFHomeWidgetStore {
     private fun prefs(ctx: Context) =
         ctx.getSharedPreferences("$kHomeWidgetStorageName", Context.MODE_PRIVATE)
 
-    fun read(ctx: Context, key: String): Map<String, String>? {
+    private fun stored(ctx: Context, key: String): JSONObject? {
         val raw = prefs(ctx).getString(key, null) ?: return null
         return try {
-            val values = JSONObject(raw).optJSONObject("$kHomeWidgetStoredValues") ?: return null
-            val out = HashMap<String, String>()
-            val names = values.keys()
-            while (names.hasNext()) {
-                val name = names.next()
-                out[name] = values.optString(name, "")
-            }
-            out
+            JSONObject(raw)
         } catch (e: Exception) {
             null
         }
     }
 
-    fun write(ctx: Context, key: String, values: Map<String, String>): Boolean {
+    private fun strings(json: JSONObject): HashMap<String, String> {
+        val out = HashMap<String, String>()
+        val names = json.keys()
+        while (names.hasNext()) {
+            val name = names.next()
+            out[name] = json.optString(name, "")
+        }
+        return out
+    }
+
+    fun read(ctx: Context, key: String): Map<String, String>? =
+        stored(ctx, key)?.optJSONObject("$kHomeWidgetStoredValues")?.let { strings(it) }
+
+    /**
+     * The values the app sent with [key]'s scheduled values that are due at
+     * [at] laid over them, in time order.
+     */
+    fun read(ctx: Context, key: String, at: Long): Map<String, String>? {
+        val json = stored(ctx, key) ?: return null
+        val values = json.optJSONObject("$kHomeWidgetStoredValues")?.let { strings(it) } ?: return null
+        for ((time, scheduled) in schedule(json)) {
+            if (time <= at) values.putAll(scheduled)
+        }
+        return values
+    }
+
+    /** When [key]'s scheduled values take effect. */
+    fun scheduleTimes(ctx: Context, key: String): List<Long> =
+        stored(ctx, key)?.let { json -> schedule(json).map { it.first } } ?: emptyList()
+
+    private fun schedule(json: JSONObject): List<Pair<Long, Map<String, String>>> {
+        val list = json.optJSONArray("$kHomeWidgetStoredSchedule") ?: return emptyList()
+        val out = ArrayList<Pair<Long, Map<String, String>>>()
+        for (i in 0 until list.length()) {
+            val entry = list.optJSONObject(i) ?: continue
+            val values = entry.optJSONObject("$kHomeWidgetScheduleValues") ?: continue
+            out.add(entry.optLong("$kHomeWidgetScheduleAt") to strings(values))
+        }
+        return out.sortedBy { it.first }
+    }
+
+    /**
+     * Stores [values]. [schedule] replaces the scheduled values; null keeps
+     * them (a button or a fetch changes the values, not the schedule).
+     */
+    fun write(ctx: Context, key: String, values: Map<String, String>, schedule: JSONArray? = null): Boolean {
         val json = JSONObject()
         json.put("$kHomeWidgetStoredValues", JSONObject(values as Map<*, *>))
         json.put("$kHomeWidgetStoredUpdatedAt", System.currentTimeMillis())
+        val kept = schedule ?: stored(ctx, key)?.optJSONArray("$kHomeWidgetStoredSchedule")
+        if (kept != null && kept.length() > 0) json.put("$kHomeWidgetStoredSchedule", kept)
         return prefs(ctx).edit().putString(key, json.toString()).commit()
     }
 
@@ -925,11 +1019,16 @@ internal object FFHomeWidgetChoices {
      * The values every copy shares, then the choice's set in FlutterFlow, then
      * those the app sent for it. null until there are any.
      */
-    fun raw(ctx: Context, definition: FFHomeWidgetDefinition, choice: String?): Map<String, String>? {
-        val shared = FFHomeWidgetStore.read(ctx, definition.key)
+    fun raw(
+        ctx: Context,
+        definition: FFHomeWidgetDefinition,
+        choice: String?,
+        at: Long = System.currentTimeMillis(),
+    ): Map<String, String>? {
+        val shared = FFHomeWidgetStore.read(ctx, definition.key, at)
         if (choice == null) return shared
         val fixed = definition.choices.firstOrNull { it.id == choice }?.values
-        val own = FFHomeWidgetStore.read(ctx, FFHomeWidgetStore.choiceKey(definition.key, choice))
+        val own = FFHomeWidgetStore.read(ctx, FFHomeWidgetStore.choiceKey(definition.key, choice), at)
         if (shared == null && fixed == null && own == null) return null
         val raw = HashMap<String, String>()
         shared?.let { raw.putAll(it) }
@@ -940,15 +1039,39 @@ internal object FFHomeWidgetChoices {
 
     fun values(ctx: Context, definition: FFHomeWidgetDefinition, choice: String?): FFValues? =
         raw(ctx, definition, choice)?.let { FFValues(it, definition.defaults, choice = choice) }
+
+    /** When the scheduled values a copy showing [choice] reads take effect. */
+    fun scheduleTimes(ctx: Context, definition: FFHomeWidgetDefinition, choice: String?): List<Long> {
+        val times = FFHomeWidgetStore.scheduleTimes(ctx, definition.key).toMutableList()
+        if (choice != null) {
+            times.addAll(FFHomeWidgetStore.scheduleTimes(ctx, FFHomeWidgetStore.choiceKey(definition.key, choice)))
+        }
+        return times
+    }
 }
 
 /** Fetches a widget's values and stores them, as the app would send them. */
 internal object FFHomeWidgetFetcher {
-    fun fetch(ctx: Context, definition: FFHomeWidgetDefinition): Boolean {
+    fun fetch(ctx: Context, definition: FFHomeWidgetDefinition, choice: String? = null): Boolean {
         val refresh = definition.refresh ?: return false
+        var address = refresh.url
+        if (refresh.keys.isNotEmpty()) {
+            val current = FFHomeWidgetChoices.values(ctx, definition, choice)
+                ?: FFValues(emptyMap(), definition.defaults, choice = choice)
+            for (key in refresh.keys) {
+                val value = java.net.URLEncoder.encode(current.text(key), "UTF-8").replace("+", "%20")
+                address = address.replace("{" + key + "}", value)
+            }
+        }
+        // What a URL that reads a choice's values fetched belongs to that choice.
+        val target = if (refresh.keys.isEmpty() || choice == null) {
+            definition.key
+        } else {
+            FFHomeWidgetStore.choiceKey(definition.key, choice)
+        }
         var connection: HttpURLConnection? = null
         return try {
-            connection = (URL(refresh.url).openConnection() as HttpURLConnection).apply {
+            connection = (URL(address).openConnection() as HttpURLConnection).apply {
                 connectTimeout = 10000
                 readTimeout = 10000
                 for ((name, value) in refresh.headers) setRequestProperty(name, value)
@@ -956,12 +1079,12 @@ internal object FFHomeWidgetFetcher {
             if (connection.responseCode !in 200..299) return false
             val body = connection.inputStream.bufferedReader().use { it.readText() }
             val json = JSONTokener(body).nextValue()
-            val values = HashMap(FFHomeWidgetStore.read(ctx, definition.key) ?: emptyMap())
+            val values = HashMap(FFHomeWidgetStore.read(ctx, target) ?: emptyMap())
             for (value in refresh.values) {
                 val found = walk(json, value.path) ?: continue
                 convert(found, value.type)?.let { values[value.key] = it }
             }
-            FFHomeWidgetStore.write(ctx, definition.key, values)
+            FFHomeWidgetStore.write(ctx, target, values)
         } catch (e: Exception) {
             false
         } finally {
@@ -1356,11 +1479,21 @@ abstract class FFHomeWidgetProvider : AppWidgetProvider() {
         // A widget that fetches its values does so on each periodic update,
         // off the main thread, then draws them.
         val definition = FFHomeWidgetDefinitions.all[definitionKey] ?: return
-        if (definition.refresh == null) return
+        val refresh = definition.refresh ?: return
+        // A URL that reads a choice's values is fetched once per choice shown.
+        val choices = if (refresh.keys.isNotEmpty() && definition.configurable) {
+            ids.map { FFHomeWidgetStore.choiceOf(context, it) }.distinct()
+        } else {
+            listOf(null)
+        }
         val pending = goAsync()
         Thread {
             try {
-                if (FFHomeWidgetFetcher.fetch(context, definition)) {
+                var fetched = false
+                for (choice in choices) {
+                    if (FFHomeWidgetFetcher.fetch(context, definition, choice)) fetched = true
+                }
+                if (fetched) {
                     FFHomeWidgetRenderer.render(context, manager, ids, definitionKey)
                 }
             } finally {
@@ -1390,6 +1523,38 @@ abstract class FFHomeWidgetProvider : AppWidgetProvider() {
  */
 internal object FFHomeWidgetRenderer {
     private const val WIDE_DP = 250
+
+    /** The shortest window of an inexact alarm Android 12+ allows. */
+    private const val WINDOW_MS = 10 * 60 * 1000L
+
+    /** Every placed copy of the app's widgets, with its size and choice. */
+    fun placed(ctx: Context): List<Map<String, Any?>> {
+        val manager = AppWidgetManager.getInstance(ctx) ?: return emptyList()
+        val out = ArrayList<Map<String, Any?>>()
+        for ((key, definition) in FFHomeWidgetDefinitions.all) {
+            for (id in manager.getAppWidgetIds(ComponentName(ctx, definition.provider))) {
+                val options = manager.getAppWidgetOptions(id)
+                val width = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH, 0)
+                val height = options.getInt(AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT, 0)
+                val binder = pick(definition, width >= WIDE_DP, height >= WIDE_DP)
+                val size = when {
+                    binder == null -> null
+                    binder === definition.small -> "small"
+                    binder === definition.medium -> "medium"
+                    else -> "large"
+                }
+                out.add(
+                    mapOf(
+                        "$kHomeWidgetPlacedDefinitionKey" to key,
+                        "$kHomeWidgetPlacedSize" to size,
+                        "$kHomeWidgetPlacedChoiceId" to
+                            if (definition.configurable) FFHomeWidgetStore.choiceOf(ctx, id) else null,
+                    ),
+                )
+            }
+        }
+        return out
+    }
 
     fun renderAll(ctx: Context, key: String) {
         val definition = FFHomeWidgetDefinitions.all[key] ?: return
@@ -1435,7 +1600,7 @@ internal object FFHomeWidgetRenderer {
             }
             manager.updateAppWidget(id, views)
         }
-        if (values != null) scheduleCountdownEnds(ctx, definition, values, ids)
+        if (values != null) scheduleNextChange(ctx, definition, values, ids)
     }
 
     /**
@@ -1506,14 +1671,19 @@ internal object FFHomeWidgetRenderer {
         views.setOnClickPendingIntent(android.R.id.background, PendingIntent.getActivity(ctx, 0, launch, flags))
     }
 
-    /** Redraws the widget when each countdown reaches zero, so it stops there. */
-    private fun scheduleCountdownEnds(
+    /**
+     * Redraws the widget at its next change: a scheduled value taking effect,
+     * or a countdown reaching zero (so it stops there).
+     */
+    private fun scheduleNextChange(
         ctx: Context,
         definition: FFHomeWidgetDefinition,
         values: FFValues,
         ids: IntArray,
     ) {
-        val end = values.futureDates().minOrNull() ?: return
+        val now = System.currentTimeMillis()
+        val scheduled = FFHomeWidgetChoices.scheduleTimes(ctx, definition, values.choice).filter { it > now }
+        val end = (values.futureDates() + scheduled).minOrNull() ?: return
         val alarms = ctx.getSystemService(Context.ALARM_SERVICE) as? AlarmManager ?: return
         val intent = Intent(ctx, definition.provider)
             .setAction(AppWidgetManager.ACTION_APPWIDGET_UPDATE)
@@ -1522,8 +1692,22 @@ internal object FFHomeWidgetRenderer {
         if (Build.VERSION.SDK_INT >= 23) flags = flags or PendingIntent.FLAG_IMMUTABLE
         val code = (definition.key + "/" + (values.choice ?: "")).hashCode()
         val pending = PendingIntent.getBroadcast(ctx, code, intent, flags)
-        // Inexact: needs no permission, and a second or two late is fine.
-        alarms.set(AlarmManager.RTC, end, pending)
+        // On time when the app may set exact alarms (it declares
+        // SCHEDULE_EXACT_ALARM and the person allowed it). Otherwise Android
+        // may deliver an inexact alarm late by up to 3/4 of the time left, so
+        // a far change asks for a window instead: 10 minutes, the shortest it
+        // allows without the permission.
+        val exact = Build.VERSION.SDK_INT < 31 || alarms.canScheduleExactAlarms()
+        val left = end - now
+        try {
+            when {
+                exact && Build.VERSION.SDK_INT >= 23 -> alarms.setExact(AlarmManager.RTC, end, pending)
+                left * 3 / 4 <= WINDOW_MS -> alarms.set(AlarmManager.RTC, end, pending)
+                else -> alarms.setWindow(AlarmManager.RTC, end, WINDOW_MS, pending)
+            }
+        } catch (e: SecurityException) {
+            alarms.set(AlarmManager.RTC, end, pending)
+        }
     }
 }
 ''';

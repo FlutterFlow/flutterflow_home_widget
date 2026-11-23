@@ -56,11 +56,18 @@ const _kProjectObject = '97C146E61CF9000F007C117D';
 /// section its slot names in a project made by `flutter create`; a project
 /// that already has other extensions composes its fragments with theirs,
 /// slot by slot.
-List<String> homeWidgetPbxprojFragments(HomeWidgetApp app) =>
-    homeWidgetPbxprojFragmentsFor(
-      bundleId: app.iosBundleId,
-      targetDeviceFamily: app.iosDeviceFamily,
-    );
+///
+/// [developmentTeams] signs the extension with the app's team, by build
+/// configuration name (`Debug`, `Release`, `Profile`); a configuration
+/// without one takes the project's.
+List<String> homeWidgetPbxprojFragments(
+  HomeWidgetApp app, {
+  Map<String, String> developmentTeams = const {},
+}) => homeWidgetPbxprojFragmentsFor(
+  bundleId: app.iosBundleId,
+  targetDeviceFamily: app.iosDeviceFamily,
+  developmentTeams: developmentTeams,
+);
 
 /// Where each fragment of [homeWidgetPbxprojFragments] goes. Every fragment
 /// starts on a new line of its own and ends without one, except slots 0 and
@@ -90,6 +97,7 @@ const kHomeWidgetPbxprojSlots = [
 List<String> homeWidgetPbxprojFragmentsFor({
   required String bundleId,
   required String targetDeviceFamily,
+  Map<String, String> developmentTeams = const {},
 }) {
   const target = kHomeWidgetIosExtensionTarget;
   const bundleSwift = kHomeWidgetIosBundleSwiftFile;
@@ -113,7 +121,7 @@ List<String> homeWidgetPbxprojFragmentsFor({
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CODE_SIGN_ENTITLEMENTS = $target/$entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				GCC_C_LANGUAGE_STANDARD = gnu11;
+${developmentTeams[name] == null ? '' : '				DEVELOPMENT_TEAM = ${developmentTeams[name]};\n'}				GCC_C_LANGUAGE_STANDARD = gnu11;
 				INFOPLIST_FILE = $target/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = $kHomeWidgetMinIosVersion;
 				LD_RUNPATH_SEARCH_PATHS = (

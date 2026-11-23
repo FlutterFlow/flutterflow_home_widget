@@ -118,6 +118,12 @@ The widget fetches `url` every `intervalMinutes` (at least 30: Android does
 not update more often) and reads each value at its JSON path. Paths are
 plain: `$.a.b[0]`, `$['a b']`.
 
+The URL can read the widget's values as `{key}`, percent-encoded:
+`https://example.com/weather?city={city}`. Each placed copy fills them in
+with its own values (its choice's over the widget's), fetches on its own,
+and keeps what it fetched for its choice. A copy fetches as soon as a person
+picks its choice.
+
 ## Configuration
 
 ```json

@@ -33,7 +33,13 @@ const kHomeWidgetRunnerEntitlementsPath = 'Runner/Runner.entitlements';
 /// signed with `Runner/Runner.entitlements`. A project that already has the
 /// target is returned as it is.
 String addHomeWidgetTarget(String pbxproj, HomeWidgetApp app) {
-  final fragments = homeWidgetPbxprojFragments(app);
+  // The extension signs with the Runner's team, configuration by
+  // configuration: an app whose team is set on its target only would
+  // otherwise build an extension nobody can sign.
+  final fragments = homeWidgetPbxprojFragments(
+    app,
+    developmentTeams: runnerDevelopmentTeams(pbxproj),
+  );
   if (pbxproj.contains('/* $kHomeWidgetIosExtensionTarget */ = {')) {
     return pbxproj;
   }
@@ -139,6 +145,22 @@ String addHomeWidgetTarget(String pbxproj, HomeWidgetApp app) {
     17,
   );
   return _signRunnerWithEntitlements(text);
+}
+
+/// The `DEVELOPMENT_TEAM` of each of the Runner's build configurations that
+/// sets one, by configuration name.
+Map<String, String> runnerDevelopmentTeams(String pbxproj) {
+  final configuration = RegExp(
+    r'^\t\t[0-9A-F]{24} /\* (\w+) \*/ = \{\n\t\t\tisa = XCBuildConfiguration;(.*?)\n\t\t\};',
+    multiLine: true,
+    dotAll: true,
+  );
+  final team = RegExp(r'^\s*DEVELOPMENT_TEAM = "?([^";]+)"?;', multiLine: true);
+  return {
+    for (final match in configuration.allMatches(pbxproj))
+      if (match[2]!.contains('INFOPLIST_FILE = Runner/Info.plist;'))
+        match[1]!: ?team.firstMatch(match[2]!)?[1],
+  };
 }
 
 /// Adds `CODE_SIGN_ENTITLEMENTS` to each of the Runner's build

@@ -83,7 +83,21 @@ List<HomeWidgetProblem> validateHomeWidgetApp(HomeWidgetApp app) {
               'a widget at most every $kHomeWidgetMinRefreshMinutes.',
         );
       }
-      if (Uri.tryParse(refresh.url)?.hasScheme != true) {
+      for (final match in RegExp(
+        r'\{([A-Za-z0-9_\-]+)\}',
+      ).allMatches(refresh.url)) {
+        if (!types.containsKey(match[1])) {
+          add(
+            '$at.refresh',
+            'reads {${match[1]}} in its URL, which is not one of the widget\'s '
+                'values.',
+          );
+        }
+      }
+      if (Uri.tryParse(
+            refresh.url.replaceAll(RegExp(r'\{[^}]*\}'), 'x'),
+          )?.hasScheme !=
+          true) {
         add('$at.refresh', 'has a URL that is not absolute: ${refresh.url}');
       }
       for (final fetched in refresh.values) {

@@ -68,8 +68,17 @@ class HomeWidgetRefreshPlan {
     required this.values,
   });
 
+  /// May read the widget's values as `{key}`: each placed copy fills them in
+  /// with its own values, so a widget a person picks a city for fetches that
+  /// city's data.
   final String url;
   final Map<String, String> headers;
   final int intervalMinutes;
   final List<FetchedValue> values;
+
+  /// The keys among [valueKeys] that [url] reads as `{key}`, in order.
+  List<String> urlKeys(Iterable<String> valueKeys) => [
+    for (final key in valueKeys)
+      if (url.contains('{$key}')) key,
+  ];
 }

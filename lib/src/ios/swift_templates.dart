@@ -180,25 +180,61 @@ enum FFHomeWidgetStore {
     return query
   }
 
-  static func read(_ key: String) -> [String: String]? {
+  private static func object(_ key: String) -> [String: Any]? {
     var query = query(key)
     query[kSecReturnData as String] = true
     query[kSecMatchLimit as String] = kSecMatchLimitOne
     var item: CFTypeRef?
     guard SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-      let data = item as? Data,
-      let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-      let values = object["$kHomeWidgetStoredValues"] as? [String: String]
+      let data = item as? Data
     else { return nil }
+    return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+  }
+
+  static func read(_ key: String) -> [String: String]? {
+    object(key)?["$kHomeWidgetStoredValues"] as? [String: String]
+  }
+
+  /// The values the app sent with [key]'s scheduled values that are due at
+  /// [date] laid over them, in time order.
+  static func read(_ key: String, at date: Date) -> [String: String]? {
+    guard let object = object(key),
+      var values = object["$kHomeWidgetStoredValues"] as? [String: String]
+    else { return nil }
+    for entry in schedule(object) where entry.at <= date {
+      values.merge(entry.values) { _, new in new }
+    }
     return values
   }
 
+  /// When [key]'s scheduled values take effect.
+  static func scheduleDates(_ key: String) -> [Date] {
+    object(key).map { object in schedule(object).map { entry in entry.at } } ?? []
+  }
+
+  private static func schedule(_ object: [String: Any]) -> [(at: Date, values: [String: String])] {
+    let list = object["$kHomeWidgetStoredSchedule"] as? [[String: Any]] ?? []
+    return list.compactMap { entry in
+      guard let millis = (entry["$kHomeWidgetScheduleAt"] as? NSNumber)?.doubleValue,
+        let values = entry["$kHomeWidgetScheduleValues"] as? [String: String]
+      else { return nil }
+      return (at: Date(timeIntervalSince1970: millis / 1000), values: values)
+    }.sorted { a, b in a.at < b.at }
+  }
+
+  /// Stores [values]. [schedule] replaces the scheduled values; nil keeps
+  /// them (a button or a fetch changes the values, not the schedule).
   @discardableResult
-  static func write(_ key: String, values: [String: String]) -> Bool {
-    let object: [String: Any] = [
+  static func write(_ key: String, values: [String: String], schedule: [[String: Any]]? = nil) -> Bool {
+    var object: [String: Any] = [
       "$kHomeWidgetStoredValues": values,
       "$kHomeWidgetStoredUpdatedAt": Int64(Date().timeIntervalSince1970 * 1000),
     ]
+    if let kept = schedule ?? (Self.object(key)?["$kHomeWidgetStoredSchedule"] as? [[String: Any]]),
+      !kept.isEmpty
+    {
+      object["$kHomeWidgetStoredSchedule"] = kept
+    }
     guard let data = try? JSONSerialization.data(withJSONObject: object) else { return false }
     let attributes: [String: Any] = [
       kSecValueData as String: data,
@@ -288,15 +324,28 @@ public class $_plugin: NSObject, FlutterPlugin {
   public func handle(_ call: FlutterMethodCall, result: @escaping FlutterResult) {
     guard #available(iOS $_minIos, *) else {
       switch call.method {
-      case "$kHomeWidgetMethodIsSupported", "$kHomeWidgetMethodUpdate": result(false)
+      case "$kHomeWidgetMethodIsSupported", "$kHomeWidgetMethodUpdate",
+        "$kHomeWidgetMethodIsPinSupported", "$kHomeWidgetMethodRequestPin":
+        result(false)
       case "$kHomeWidgetMethodClear": result(nil)
+      case "$kHomeWidgetMethodPlacedWidgets": result([])
       default: result(FlutterMethodNotImplemented)
       }
       return
     }
-    if call.method == "$kHomeWidgetMethodIsSupported" {
+    switch call.method {
+    case "$kHomeWidgetMethodIsSupported":
       result(true)
       return
+    // Only the person adds widgets on iOS.
+    case "$kHomeWidgetMethodIsPinSupported", "$kHomeWidgetMethodRequestPin":
+      result(false)
+      return
+    case "$kHomeWidgetMethodPlacedWidgets":
+      Self.placedWidgets(result)
+      return
+    default:
+      break
     }
     let args = call.arguments as? [String: Any] ?? [:]
     guard let key = args["$kHomeWidgetArgDefinitionKey"] as? String, !key.isEmpty else {
@@ -314,14 +363,22 @@ public class $_plugin: NSObject, FlutterPlugin {
     case "$kHomeWidgetMethodUpdate":
       let values = (args["$kHomeWidgetArgValues"] as? [String: Any] ?? [:])
         .compactMapValues { value in value as? String }
+      let schedule = (args["$kHomeWidgetArgSchedule"] as? [[String: Any]] ?? []).map { entry in
+        [
+          "$kHomeWidgetScheduleAt": (entry["$kHomeWidgetScheduleAt"] as? NSNumber)?.int64Value ?? 0,
+          "$kHomeWidgetScheduleValues": (entry["$kHomeWidgetScheduleValues"] as? [String: Any] ?? [:])
+            .compactMapValues { value in value as? String },
+        ] as [String: Any]
+      }
       guard let choice = choice else {
-        let stored = FFHomeWidgetStore.write(key, values: values)
+        let stored = FFHomeWidgetStore.write(key, values: values, schedule: schedule)
         Self.reload(key)
         result(stored)
         return
       }
       // A choice's own values, and the choice in the picker.
-      let stored = FFHomeWidgetStore.write(FFHomeWidgetStore.choiceKey(key, choice), values: values)
+      let stored = FFHomeWidgetStore.write(
+        FFHomeWidgetStore.choiceKey(key, choice), values: values, schedule: schedule)
       let choicesKey = FFHomeWidgetStore.choicesKey(key)
       var choices = FFHomeWidgetStore.read(choicesKey) ?? [:]
       if let name = args["$kHomeWidgetArgChoiceName"] as? String, !name.isEmpty {
@@ -348,6 +405,52 @@ public class $_plugin: NSObject, FlutterPlugin {
       result(FlutterMethodNotImplemented)
     }
   }
+
+  /// Every copy of the app's widgets WidgetKit has, with its size.
+  private static func placedWidgets(_ result: @escaping FlutterResult) {
+    #if canImport(WidgetKit)
+    if #available(iOS $_minIos, *) {
+      WidgetCenter.shared.getCurrentConfigurations { found in
+        var list: [[String: Any]] = []
+        if case .success(let infos) = found {
+          for info in infos where info.kind.hasPrefix("$kHomeWidgetIosKindPrefix") {
+            var item: [String: Any] = [
+              "$kHomeWidgetPlacedDefinitionKey": String(info.kind.dropFirst("$kHomeWidgetIosKindPrefix".count))
+            ]
+            if let size = sizeName(info.family) {
+              item["$kHomeWidgetPlacedSize"] = size
+            }
+            list.append(item)
+          }
+        }
+        DispatchQueue.main.async { result(list) }
+      }
+      return
+    }
+    #endif
+    result([])
+  }
+
+  #if canImport(WidgetKit)
+  @available(iOS $_minIos, *)
+  private static func sizeName(_ family: WidgetFamily) -> String? {
+    switch family {
+    case .systemSmall: return "small"
+    case .systemMedium: return "medium"
+    case .systemLarge: return "large"
+    default: break
+    }
+    if #available(iOS 16.0, *) {
+      switch family {
+      case .accessoryCircular: return "accessoryCircular"
+      case .accessoryRectangular: return "accessoryRectangular"
+      case .accessoryInline: return "accessoryInline"
+      default: break
+      }
+    }
+    return nil
+  }
+  #endif
 
   private static func reload(_ key: String) {
     #if canImport(WidgetKit)
@@ -437,7 +540,7 @@ String homeWidgetBundleSwift(List<HomeWidgetDefinition> definitions) {
     final refreshPlan = definition.refresh;
     final refreshCode = refreshPlan == null
         ? ''
-        : ',\n    refresh: ${_swiftRefresh(refreshPlan)}';
+        : ',\n    refresh: ${_swiftRefresh(refreshPlan, refreshPlan.urlKeys([for (final v in definition.values) v.key]))}';
     final configurable = definition.isConfigurable;
     final choicesCode = configurable ? _swiftChoices(definition) : '';
     structs.write('''
@@ -729,7 +832,7 @@ struct EmptyWidget: Widget {
 ''';
 
 /// The Swift `FFHomeWidgetRefresh(...)` of [plan].
-String _swiftRefresh(HomeWidgetRefreshPlan plan) {
+String _swiftRefresh(HomeWidgetRefreshPlan plan, List<String> keys) {
   final headers = plan.headers.isEmpty
       ? '[:]'
       : '[${plan.headers.entries.map((e) => '${swiftString(e.key)}: ${swiftString(e.value)}').join(', ')}]';
@@ -741,8 +844,11 @@ String _swiftRefresh(HomeWidgetRefreshPlan plan) {
             JsonIndex(:final index) => '.index($index)',
           }).join(', ')}])',
   ];
+  final keysCode = keys.isEmpty
+      ? ''
+      : ', keys: [${keys.map(swiftString).join(', ')}]';
   return 'FFHomeWidgetRefresh(url: ${swiftString(plan.url)}, headers: $headers, '
-      'interval: ${plan.intervalMinutes * 60}, values: [${values.join(', ')}])';
+      'interval: ${plan.intervalMinutes * 60}, values: [${values.join(', ')}]$keysCode)';
 }
 
 /// The native name of a fetched value's type.
@@ -820,18 +926,29 @@ enum FFHomeWidgetChoices {
 
   /// The values every copy shares, then the choice's set in FlutterFlow,
   /// then those the app sent for it. nil until there are any.
-  static func values(_ definition: FFHomeWidgetDefinition, choice: String?) -> FFValues? {
-    let shared = FFHomeWidgetStore.read(definition.key)
+  static func values(
+    _ definition: FFHomeWidgetDefinition, choice: String?, at date: Date = Date()
+  ) -> FFValues? {
+    let shared = FFHomeWidgetStore.read(definition.key, at: date)
     guard let choice = choice else {
       return shared.map { raw in FFValues(raw: raw, defaults: definition.defaults) }
     }
     let fixed = definition.choices.first { item in item.id == choice }?.values
-    let own = FFHomeWidgetStore.read(FFHomeWidgetStore.choiceKey(definition.key, choice))
+    let own = FFHomeWidgetStore.read(FFHomeWidgetStore.choiceKey(definition.key, choice), at: date)
     if shared == nil && fixed == nil && own == nil { return nil }
     var raw = shared ?? [:]
     raw.merge(fixed ?? [:]) { _, new in new }
     raw.merge(own ?? [:]) { _, new in new }
     return FFValues(raw: raw, defaults: definition.defaults, choice: choice)
+  }
+
+  /// When the scheduled values a copy showing [choice] reads take effect.
+  static func scheduleDates(_ definition: FFHomeWidgetDefinition, choice: String?) -> [Date] {
+    var dates = FFHomeWidgetStore.scheduleDates(definition.key)
+    if let choice = choice {
+      dates += FFHomeWidgetStore.scheduleDates(FFHomeWidgetStore.choiceKey(definition.key, choice))
+    }
+    return dates
   }
 }
 
@@ -843,6 +960,9 @@ struct FFHomeWidgetRefresh {
   let headers: [String: String]
   let interval: TimeInterval
   let values: [FFFetchedValue]
+  /// The values the URL reads, as `{key}`. A URL that reads any is fetched
+  /// for each choice on its own, and stores what it fetched for that choice.
+  var keys: [String] = []
 }
 
 enum FFJSONStep {
@@ -863,8 +983,28 @@ struct FFFetchedValue {
 
 /// Fetches a widget's values and stores them, as the app would send them.
 enum FFHomeWidgetFetcher {
-  static func fetch(_ definition: FFHomeWidgetDefinition, done: @escaping () -> Void) {
-    guard let refresh = definition.refresh, let url = URL(string: refresh.url) else {
+  static func fetch(
+    _ definition: FFHomeWidgetDefinition, choice: String? = nil, done: @escaping () -> Void
+  ) {
+    guard let refresh = definition.refresh else {
+      done()
+      return
+    }
+    var address = refresh.url
+    if !refresh.keys.isEmpty {
+      let current = FFHomeWidgetChoices.values(definition, choice: choice)
+        ?? FFValues(raw: [:], defaults: definition.defaults, choice: choice)
+      var allowed = CharacterSet.alphanumerics
+      allowed.insert(charactersIn: "-._~")
+      for key in refresh.keys {
+        let value = current.text(key).addingPercentEncoding(withAllowedCharacters: allowed) ?? ""
+        address = address.replacingOccurrences(of: "{" + key + "}", with: value)
+      }
+    }
+    // What a URL that reads a choice's values fetched belongs to that choice.
+    let target = refresh.keys.isEmpty || choice == nil
+      ? definition.key : FFHomeWidgetStore.choiceKey(definition.key, choice!)
+    guard let url = URL(string: address) else {
       done()
       return
     }
@@ -878,13 +1018,13 @@ enum FFHomeWidgetFetcher {
         let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
         let json = try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])
       else { return }
-      var values = FFHomeWidgetStore.read(definition.key) ?? [:]
+      var values = FFHomeWidgetStore.read(target) ?? [:]
       for value in refresh.values {
         if let found = walk(json, value.path), let text = convert(found, value.type) {
           values[value.key] = text
         }
       }
-      FFHomeWidgetStore.write(definition.key, values: values)
+      FFHomeWidgetStore.write(target, values: values)
     }.resume()
   }
 
@@ -1026,9 +1166,10 @@ func FFColor(light: UInt32, dark: UInt32) -> Color {
 
 // MARK: - Timeline
 
-/// One entry with the stored values, and one at each date among them, so a
-/// countdown stops at zero instead of counting up. The app reloads the
-/// timeline whenever it sends new values, so the policy is `.never`.
+/// One entry with the stored values, one at each scheduled change, and one
+/// at each date among the values, so a countdown stops at zero instead of
+/// counting up. The app reloads the timeline whenever it sends new values,
+/// so the policy is `.never`.
 enum FFHomeWidgetTimeline {
   static func placeholder(_ definition: FFHomeWidgetDefinition) -> FFHomeWidgetEntry {
     FFHomeWidgetEntry(
@@ -1056,7 +1197,7 @@ enum FFHomeWidgetTimeline {
     }
     // A widget that fetches its values does so on each reload, then asks
     // for the next one after its interval.
-    FFHomeWidgetFetcher.fetch(definition) {
+    FFHomeWidgetFetcher.fetch(definition, choice: choice) {
       completion(
         timeline(
           definition, choice: choice,
@@ -1068,11 +1209,20 @@ enum FFHomeWidgetTimeline {
     _ definition: FFHomeWidgetDefinition, choice: String?, policy: TimelineReloadPolicy
   ) -> Timeline<FFHomeWidgetEntry> {
     let now = Date()
-    let stored = FFHomeWidgetChoices.values(definition, choice: choice)
-    var entries = [FFHomeWidgetEntry(date: now, definition: definition, values: stored)]
-    for date in (stored?.dates ?? []).filter({ \$0 > now }).sorted() {
-      entries.append(FFHomeWidgetEntry(date: date, definition: definition, values: stored))
+    func entry(_ date: Date) -> FFHomeWidgetEntry {
+      FFHomeWidgetEntry(
+        date: date, definition: definition,
+        values: FFHomeWidgetChoices.values(definition, choice: choice, at: date))
     }
+    // Each scheduled change, and each countdown's end in every state the
+    // schedule leads to.
+    var dates = Set(FFHomeWidgetChoices.scheduleDates(definition, choice: choice).filter { \$0 > now })
+    for date in [now] + Array(dates) {
+      for end in entry(date).values?.dates ?? [] where end > now {
+        dates.insert(end)
+      }
+    }
+    let entries = [entry(now)] + dates.sorted().map(entry)
     return Timeline(entries: entries, policy: policy)
   }
 }

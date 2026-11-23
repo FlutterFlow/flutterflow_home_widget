@@ -100,11 +100,16 @@ class $kHomeWidgetDartClass {
   /// With a [choiceId], the values show only on the copies showing that
   /// choice, over the values every copy shares. A choice that isn't set in
   /// FlutterFlow is added to the picker, named [choiceName] (else its id).
+  ///
+  /// [schedule] lists values that take effect later: at each entry's time
+  /// the widget switches to [values] overlaid with every entry due by then,
+  /// without the app running. Each update replaces the schedule.
   static Future<bool> update({
     required String definitionKey,
     Map<String, String?> values = const {},
     String? choiceId,
     String? choiceName,
+    List<FFHomeWidgetScheduledValues> schedule = const [],
   }) async =>
       await _invoke<bool>('$kHomeWidgetMethodUpdate', {
         '$kHomeWidgetArgDefinitionKey': definitionKey,
@@ -116,8 +121,53 @@ class $kHomeWidgetDartClass {
           '$kHomeWidgetArgChoiceId': choiceId,
         if (choiceName != null && choiceName.isNotEmpty)
           '$kHomeWidgetArgChoiceName': choiceName,
+        if (schedule.isNotEmpty)
+          '$kHomeWidgetArgSchedule': [
+            for (final entry in [...schedule]
+              ..sort((a, b) => a.at.compareTo(b.at)))
+              {
+                '$kHomeWidgetScheduleAt': entry.at.millisecondsSinceEpoch,
+                '$kHomeWidgetScheduleValues': {
+                  for (final value in entry.values.entries)
+                    if (value.value != null) value.key: value.value!,
+                },
+              },
+          ],
       }) ??
       false;
+
+  /// Whether [requestPin] can ask the launcher to place a widget: Android 8+
+  /// with a launcher that supports it. Always false on iOS, where only the
+  /// person adds widgets.
+  static Future<bool> isPinSupported() async =>
+      await _invoke<bool>('$kHomeWidgetMethodIsPinSupported') ?? false;
+
+  /// Asks the launcher to place the widget [definitionKey] on the home
+  /// screen. The launcher shows its own confirmation; true means it was
+  /// asked, not that the person placed it ([placedWidgets] tells).
+  static Future<bool> requestPin({required String definitionKey}) async =>
+      await _invoke<bool>('$kHomeWidgetMethodRequestPin', {
+        '$kHomeWidgetArgDefinitionKey': definitionKey,
+      }) ??
+      false;
+
+  /// Every copy of the app's widgets on the home screen (and, on iOS, the
+  /// Lock Screen). Empty where there are none or the platform has no
+  /// widgets.
+  static Future<List<FFHomeWidgetPlacement>> placedWidgets() async {
+    final placed =
+        await _invoke<List<Object?>>('$kHomeWidgetMethodPlacedWidgets') ??
+        const [];
+    return [
+      for (final item in placed)
+        if (item case {'$kHomeWidgetPlacedDefinitionKey': final String key})
+          FFHomeWidgetPlacement._(
+            definitionKey: key,
+            size: item['$kHomeWidgetPlacedSize'] as String?,
+            choiceId: item['$kHomeWidgetPlacedChoiceId'] as String?,
+          ),
+    ];
+  }
 
   /// Removes the stored values: the widget goes back to its placeholder text,
   /// and the choices the app added leave the picker. With a [choiceId], only
@@ -172,6 +222,35 @@ class $kHomeWidgetDartClass {
       return null;
     }
   }
+}
+
+/// Values a widget switches to at [at] (see [$kHomeWidgetDartClass.update]).
+class FFHomeWidgetScheduledValues {
+  const FFHomeWidgetScheduledValues(this.at, this.values);
+
+  final DateTime at;
+
+  /// Values by key, encoded as for an update; a null is left out.
+  final Map<String, String?> values;
+}
+
+/// A copy of a widget on the home screen or Lock Screen.
+class FFHomeWidgetPlacement {
+  const FFHomeWidgetPlacement._({
+    required this.definitionKey,
+    this.size,
+    this.choiceId,
+  });
+
+  final String definitionKey;
+
+  /// `small`, `medium`, `large`, or a Lock Screen size
+  /// (`accessoryCircular`, `accessoryRectangular`, `accessoryInline`); null
+  /// where the platform does not say.
+  final String? size;
+
+  /// The choice the copy shows, where the platform says (Android).
+  final String? choiceId;
 }
 ''';
 }

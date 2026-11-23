@@ -78,6 +78,10 @@ const kHomeWidgetStoredValues = 'values';
 /// milliseconds since the Unix epoch.
 const kHomeWidgetStoredUpdatedAt = 'updatedAt';
 
+/// Key of the stored JSON object that holds the schedule: a list of
+/// `{at, values}` (see [kHomeWidgetArgSchedule]), in time order.
+const kHomeWidgetStoredSchedule = 'schedule';
+
 /// Where a choice's own values are stored: the definition key, this, then
 /// the choice's id (a fixed choice's key or the app's own id). A copy of the
 /// widget showing that choice reads them over the shared values.
@@ -104,10 +108,27 @@ const kHomeWidgetMethodUpdate = 'update';
 /// Returns nothing. Clearing a widget that shows nothing is not an error.
 const kHomeWidgetMethodClear = 'clear';
 
+/// Returns `bool`: whether the app can ask the launcher to place a widget
+/// (Android 8+ with a launcher that supports it; never on iOS).
+const kHomeWidgetMethodIsPinSupported = 'isPinSupported';
+
+/// Returns `bool`: whether the launcher was asked to place the widget. It
+/// shows its own confirmation; the result does not say whether the person
+/// placed it.
+const kHomeWidgetMethodRequestPin = 'requestPin';
+
+/// Returns a list of maps, one per copy of a widget on the home screen or
+/// Lock Screen: [kHomeWidgetPlacedDefinitionKey], and where known
+/// [kHomeWidgetPlacedSize] and [kHomeWidgetPlacedChoiceId].
+const kHomeWidgetMethodPlacedWidgets = 'placedWidgets';
+
 const kHomeWidgetMethods = [
   kHomeWidgetMethodIsSupported,
   kHomeWidgetMethodUpdate,
   kHomeWidgetMethodClear,
+  kHomeWidgetMethodIsPinSupported,
+  kHomeWidgetMethodRequestPin,
+  kHomeWidgetMethodPlacedWidgets,
 ];
 
 // --- Argument keys ----------------------------------------------------------
@@ -132,6 +153,23 @@ const kHomeWidgetArgChoiceId = 'choiceId';
 /// this or else its id.
 const kHomeWidgetArgChoiceName = 'choiceName';
 
+/// `List<Map>`, optional on update: values that take effect later, each
+/// `{at: <ms since the epoch>, values: Map<String, String>}`. At each `at` the
+/// widget switches to the values sent with this update overlaid with every
+/// entry due by then, in time order, without the app running. An update
+/// replaces the schedule; one without it clears it.
+const kHomeWidgetArgSchedule = 'schedule';
+
+/// Keys of a schedule entry.
+const kHomeWidgetScheduleAt = 'at';
+const kHomeWidgetScheduleValues = 'values';
+
+/// Keys of a placed widget in the result of [kHomeWidgetMethodPlacedWidgets].
+/// The size is a [HomeWidgetSize] name; the choice is the copy's choice id.
+const kHomeWidgetPlacedDefinitionKey = 'definitionKey';
+const kHomeWidgetPlacedSize = 'size';
+const kHomeWidgetPlacedChoiceId = 'choiceId';
+
 /// Argument keys per method, in the order generators emit them.
 const kHomeWidgetMethodArguments = <String, List<String>>{
   kHomeWidgetMethodIsSupported: [],
@@ -140,8 +178,12 @@ const kHomeWidgetMethodArguments = <String, List<String>>{
     kHomeWidgetArgValues,
     kHomeWidgetArgChoiceId,
     kHomeWidgetArgChoiceName,
+    kHomeWidgetArgSchedule,
   ],
   kHomeWidgetMethodClear: [kHomeWidgetArgDefinitionKey, kHomeWidgetArgChoiceId],
+  kHomeWidgetMethodIsPinSupported: [],
+  kHomeWidgetMethodRequestPin: [kHomeWidgetArgDefinitionKey],
+  kHomeWidgetMethodPlacedWidgets: [],
 };
 
 // --- Values -----------------------------------------------------------------

@@ -47,6 +47,29 @@ void main() {
       );
     });
 
+    test("signs the extension with the Runner's team", () {
+      final signed = stock.replaceAll(
+        'INFOPLIST_FILE = Runner/Info.plist;',
+        'DEVELOPMENT_TEAM = AB12CD34EF;\n\t\t\t\tINFOPLIST_FILE = Runner/Info.plist;',
+      );
+      expect(runnerDevelopmentTeams(signed), {
+        'Debug': 'AB12CD34EF',
+        'Release': 'AB12CD34EF',
+        'Profile': 'AB12CD34EF',
+      });
+      final patched = addHomeWidgetTarget(signed, app);
+      // The Runner's three, then the extension's three.
+      expect(
+        'DEVELOPMENT_TEAM = AB12CD34EF;'.allMatches(patched),
+        hasLength(6),
+      );
+      expect(runnerDevelopmentTeams(stock), isEmpty);
+      expect(
+        addHomeWidgetTarget(stock, app),
+        isNot(contains('DEVELOPMENT_TEAM')),
+      );
+    });
+
     test('keeps braces and parentheses balanced', () {
       int count(String s, String c) => c.allMatches(s).length;
       expect(count(patched, '{'), count(patched, '}'));

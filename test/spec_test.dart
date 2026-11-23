@@ -188,6 +188,100 @@ void main() {
     });
   });
 
+  group('refresh per choice', () {
+    HomeWidgetApp withRefresh(String url) => _app((json) {
+      _widget(json)['refresh'] = {
+        'url': url,
+        'intervalMinutes': 60,
+        'values': [
+          {'key': 'status', 'type': 'string', 'path': r'$.args.status'},
+        ],
+      };
+    });
+
+    test('a URL that reads values names them for both platforms', () {
+      final files = generateHomeWidgetFiles(
+        withRefresh('https://example.com/water?glasses={glasses}&s={status}'),
+      );
+      expect(
+        files['ios/HomeWidget/HomeWidgetBundle.swift'],
+        contains(
+          'values: [FFFetchedValue(key: "status", type: .text, '
+          'path: [.key("args"), .key("status")])], keys: ["glasses", "status"])',
+        ),
+      );
+      expect(
+        files.entries
+            .firstWhere((e) => e.key.endsWith('FFHomeWidgetDefinitions.kt'))
+            .value,
+        contains(
+          'listOf(".args", "status"))), listOf("glasses", "status")),'
+              .replaceFirst('".args"', '"args"'),
+        ),
+      );
+    });
+
+    test('a URL without placeholders generates what it did before', () {
+      final files = generateHomeWidgetFiles(
+        withRefresh('https://example.com/water.json'),
+      );
+      expect(
+        files['ios/HomeWidget/HomeWidgetBundle.swift'],
+        isNot(contains('keys: [')),
+      );
+    });
+
+    test('a placeholder that is not a value is a problem', () {
+      expect(
+        validateHomeWidgetApp(
+          withRefresh('https://example.com/{city}'),
+        ).map((p) => p.message),
+        [contains('reads {city} in its URL')],
+      );
+      expect(
+        validateHomeWidgetApp(withRefresh('https://example.com/{glasses}')),
+        isEmpty,
+      );
+    });
+  });
+
+  group('plugin', () {
+    final files = generateHomeWidgetFiles(_app());
+    final dart = files['packages/ff_home_widget/lib/ff_home_widget.dart']!;
+    final swift = files.entries
+        .firstWhere((e) => e.key.endsWith('FFHomeWidgetPlugin.swift'))
+        .value;
+    final kotlin = files.entries
+        .firstWhere((e) => e.key.endsWith('FFHomeWidgetPlugin.kt'))
+        .value;
+
+    test('pins and lists placed widgets on both platforms', () {
+      expect(dart, contains('static Future<bool> isPinSupported()'));
+      expect(dart, contains('static Future<bool> requestPin('));
+      expect(
+        dart,
+        contains('static Future<List<FFHomeWidgetPlacement>> placedWidgets()'),
+      );
+      expect(swift, contains('WidgetCenter.shared.getCurrentConfigurations'));
+      expect(swift, contains('case "isPinSupported", "requestPin":'));
+      expect(kotlin, contains('manager.requestPinAppWidget('));
+      expect(kotlin, contains('"placedWidgets" -> {'));
+    });
+
+    test('sends a schedule, sorted, with each update', () {
+      expect(
+        dart,
+        contains('List<FFHomeWidgetScheduledValues> schedule = const []'),
+      );
+      expect(dart, contains("'schedule': ["));
+      expect(swift, contains('values: values, schedule: schedule'));
+      expect(
+        kotlin,
+        contains('FFHomeWidgetStore.write(ctx, key, values, schedule)'),
+      );
+    });
+  });
+
   group('generated files', () {
     final files = generateHomeWidgetFiles(_app());
 

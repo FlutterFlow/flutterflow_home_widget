@@ -47,6 +47,34 @@ await FFHomeWidget.update(
 );
 ```
 
+More from the plugin:
+
+```dart
+// Values that take effect later, without the app running.
+await FFHomeWidget.update(
+  definitionKey: 'water',
+  values: {'status': 'Drink a glass'},
+  schedule: [
+    FFHomeWidgetScheduledValues(DateTime(2026, 11, 24, 9), {'status': 'Good morning'}),
+  ],
+);
+
+// Ask the launcher to place a widget (Android 8+; false on iOS).
+if (await FFHomeWidget.isPinSupported()) {
+  await FFHomeWidget.requestPin(definitionKey: 'water');
+}
+
+// Which widgets are on the home screen: key, size and (Android) choice.
+final placed = await FFHomeWidget.placedWidgets();
+```
+
+An update replaces the schedule; one without `schedule` clears it. On iOS
+each scheduled change is a WidgetKit timeline entry. On Android an alarm
+redraws the widget: on time when the app may set exact alarms (it declares
+`SCHEDULE_EXACT_ALARM` and the person allowed it), otherwise within Android's
+window for inexact alarms (up to 3/4 of the time left, at most 10 minutes
+for changes further away).
+
 [`example/widgets.json`](example/widgets.json) is a complete spec: one
 widget in two Home Screen sizes and two Lock Screen sizes, with a button
 that adds a glass without opening the app.
@@ -80,14 +108,17 @@ final files = generateHomeWidgetFiles(app); // path -> content
   or visibility can read a value. A node can open a page of the app, or be a
   button that toggles a boolean, steps a number or clears the widget.
 - Optional **refresh**: the widget fetches JSON on a schedule and reads its
-  values out of it, natively, with the app closed.
+  values out of it, natively, with the app closed. The URL can read the
+  widget's values as `{key}`: each placed copy fills them in with its own,
+  so a widget a person picks a city for fetches that city's data.
 - Optional **configuration**: choices a person picks when placing the widget
   (built-in, or added by the app at run time).
 
 ## What the app still needs
 
 - **iOS signing**: the extension is its own target, `<bundle id>.HomeWidget`,
-  with its own App ID and provisioning profile, and both targets need the
+  with its own App ID and provisioning profile (`apply` gives it the Runner's
+  development team), and both targets need the
   Keychain Sharing capability (the group is `<bundle id>.homewidget`). The
   values the app sends are stored in that keychain group.
 - **iOS 14** or later for widgets, **16** for the Lock Screen sizes and
@@ -99,14 +130,14 @@ final files = generateHomeWidgetFiles(app); // path -> content
 
 ## Versions
 
-Tags are releases (`v0.1.1`). Depend on a tag:
+Tags are releases (`v0.2.0`). Depend on a tag:
 
 ```yaml
 dependencies:
   flutterflow_home_widget:
     git:
       url: https://github.com/FlutterFlow/flutterflow_home_widget.git
-      ref: v0.1.1
+      ref: v0.2.0
 ```
 
 The generated native code and the Dart plugin it talks to are one unit, so
