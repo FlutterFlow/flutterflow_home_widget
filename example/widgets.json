@@ -1,0 +1,82 @@
+{
+  "iosBundleId": "io.flutterflow.example.demo",
+  "iosDeviceFamily": "1",
+  "routes": { "scheme": "demo", "host": "demo.example.com" },
+  "widgets": [
+    {
+      "key": "water",
+      "name": "Water",
+      "description": "How much water you drank today.",
+      "placeholderText": "Open the app to start tracking.",
+      "values": [
+        { "key": "glasses", "name": "Glasses", "type": "integer", "default": "3" },
+        { "key": "progress", "name": "Progress", "type": "double", "default": "0.4" },
+        { "key": "status", "name": "Status", "type": "string", "default": "3 of 8 glasses" },
+        { "key": "accent", "name": "Accent", "type": "color", "default": "#FF2F80ED" }
+      ],
+      "layouts": {
+        "small": {
+          "tap": { "openPage": "/water" },
+          "root": {
+            "type": "box", "key": "card", "width": "fill", "height": "fill",
+            "background": { "light": "#FFFFFFFF", "dark": "#FF101418" },
+            "child": {
+              "type": "column", "key": "content", "padding": [16, 16, 16, 16],
+              "crossAxis": "start", "spacing": 6,
+              "children": [
+                { "type": "text", "key": "title", "text": "Water", "fontSize": 14, "fontWeight": 600,
+                  "color": { "light": "#FF14181B", "dark": "#FFFFFFFF" } },
+                { "type": "box", "key": "ringBox", "flex": 1, "childAlignment": [0, 0],
+                  "child": { "type": "progress", "key": "ring", "circular": true,
+                    "value": { "value": "progress" }, "color": "#FF2F80ED", "trackColor": "#332F80ED",
+                    "size": 64, "thickness": 7 } },
+                { "type": "text", "key": "status", "value": "status", "fontSize": 12, "maxLines": 1,
+                  "color": { "light": "#FF57636C", "dark": "#FF95A1AC" } }
+              ]
+            }
+          }
+        },
+        "medium": {
+          "tap": { "openPage": "/water" },
+          "root": {
+            "type": "box", "key": "card", "width": "fill", "height": "fill",
+            "background": { "light": "#FFFFFFFF", "dark": "#FF101418" },
+            "child": {
+              "type": "row", "key": "content", "padding": [16, 16, 16, 16], "spacing": 16,
+              "children": [
+                { "type": "progress", "key": "ring", "circular": true,
+                  "value": { "value": "progress" }, "color": "#FF2F80ED", "trackColor": "#332F80ED",
+                  "size": 96, "thickness": 9 },
+                { "type": "column", "key": "details", "flex": 1, "crossAxis": "start", "spacing": 4,
+                  "mainAxis": "center",
+                  "children": [
+                    { "type": "text", "key": "title", "text": "Water", "fontSize": 16, "fontWeight": 600,
+                      "color": { "light": "#FF14181B", "dark": "#FFFFFFFF" } },
+                    { "type": "text", "key": "glasses", "value": "glasses", "fontSize": 34, "fontWeight": 700,
+                      "color": { "value": "accent" } },
+                    { "type": "text", "key": "status", "value": "status", "fontSize": 12, "maxLines": 1,
+                      "color": { "light": "#FF57636C", "dark": "#FF95A1AC" } }
+                  ] },
+                { "type": "box", "key": "add", "width": 44, "height": 44, "radius": 22,
+                  "background": "#FF2F80ED", "childAlignment": [0, 0],
+                  "tap": { "step": "glasses", "by": 1, "min": 0, "max": 20, "integer": true },
+                  "child": { "type": "icon", "key": "plus", "codePoint": "0xe145", "size": 24, "color": "#FFFFFFFF" } }
+              ]
+            }
+          }
+        },
+        "accessoryCircular": {
+          "root": { "type": "progress", "key": "ring", "circular": true,
+            "value": { "value": "progress" }, "color": "#FFFFFFFF", "trackColor": "#44FFFFFF",
+            "size": 56, "thickness": 6 }
+        },
+        "accessoryInline": {
+          "root": { "type": "row", "key": "line", "spacing": 4, "children": [
+            { "type": "icon", "key": "drop", "codePoint": "0xe798", "size": 14, "color": "#FFFFFFFF" },
+            { "type": "text", "key": "status", "value": "status", "fontSize": 14, "color": "#FFFFFFFF" }
+          ] }
+        }
+      }
+    }
+  ]
+}
