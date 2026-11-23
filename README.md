@@ -19,7 +19,7 @@ tools can write the spec as JSON.
 ## Quick start
 
 ```sh
-dart pub global activate --source git https://github.com/FlutterFlow/flutter_home_widget.git
+dart pub global activate --source git https://github.com/FlutterFlow/flutterflow_home_widget.git
 flutter create --org com.example my_app
 flutterflow_home_widget validate widgets.json
 flutterflow_home_widget apply widgets.json my_app
@@ -99,14 +99,14 @@ final files = generateHomeWidgetFiles(app); // path -> content
 
 ## Versions
 
-Tags are releases (`v0.1.0`). Depend on a tag:
+Tags are releases (`v0.1.1`). Depend on a tag:
 
 ```yaml
 dependencies:
   flutterflow_home_widget:
     git:
-      url: https://github.com/FlutterFlow/flutter_home_widget.git
-      ref: v0.1.0
+      url: https://github.com/FlutterFlow/flutterflow_home_widget.git
+      ref: v0.1.1
 ```
 
 The generated native code and the Dart plugin it talks to are one unit, so
