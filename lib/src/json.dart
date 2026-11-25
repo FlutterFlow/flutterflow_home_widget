@@ -7,9 +7,9 @@
 /// number of points, `"fill"` or `"fit"` (the default).
 library;
 
-import 'package:flutterflow_home_widget/src/layout/layout_model.dart';
 import 'package:flutterflow_home_widget/src/refresh.dart';
 import 'package:flutterflow_home_widget/src/spec.dart';
+import 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
 
 /// Thrown when JSON does not describe a valid spec. [path] says where.
 class HomeWidgetJsonException implements Exception {

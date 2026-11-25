@@ -7,6 +7,7 @@
 /// adds the extension target to the app's Xcode project.
 library;
 
+export 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
 export 'src/android/app_widget_templates.dart'
     show homeWidgetAndroidFiles, kHomeWidgetNoChoicesText;
 export 'src/contract.dart';
@@ -17,15 +18,11 @@ export 'src/dart/plugin_package.dart'
         homeWidgetPluginPubspec,
         kHomeWidgetPluginDartPath,
         kHomeWidgetPluginPubspecPath;
-export 'src/escape.dart';
 export 'src/generate.dart';
 export 'src/ios/flutter_project.dart';
 export 'src/ios/pbxproj_fragments.dart';
 export 'src/ios/swift_templates.dart';
 export 'src/json.dart';
-export 'src/layout/layout_model.dart';
-export 'src/layout/remote_views_emitter.dart';
-export 'src/layout/swiftui_emitter.dart';
 export 'src/refresh.dart';
 export 'src/spec.dart';
 export 'src/validate.dart';

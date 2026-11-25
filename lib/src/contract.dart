@@ -197,4 +197,4 @@ const kHomeWidgetMethodArguments = <String, List<String>>{
 /// - dateTime: milliseconds since the Unix epoch, decimal.
 /// - color: `#AARRGGBB`, upper case.
 ///
-/// The encoder of each type is [HomeWidgetValueType.encoder].
+/// The encoder of each type is [HomeWidgetValueTypeWire.encoder].
