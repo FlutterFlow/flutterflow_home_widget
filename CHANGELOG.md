@@ -1,3 +1,19 @@
+## Unreleased
+
+- The layout model, the SwiftUI and RemoteViews emitters, escaping and the
+  shared Swift and Kotlin run time move into a new package,
+  `flutterflow_native_layout` (`packages/flutterflow_native_layout/`), which
+  this package depends on by path. `layout.dart` and the main library
+  re-export it, so existing imports keep working.
+- `native_layout.dart` re-exports the parts of the core that code drawing
+  native layouts of its own (such as Live Activity cards) uses.
+- `HomeWidgetValueType` is a typedef of the core's `LayoutValueType`; `id`,
+  `encoder` and `isNumber` come from the `HomeWidgetValueTypeWire` extension.
+- A carriage return in a text, a widget name or a description is escaped in
+  Kotlin strings (`\r`) and Android XML (`\u000D`) instead of being written
+  raw, which broke the Android build. Generated files are otherwise
+  unchanged.
+
 ## 0.2.0
 
 - `FFHomeWidget.update` takes a `schedule`: values that take effect later,
