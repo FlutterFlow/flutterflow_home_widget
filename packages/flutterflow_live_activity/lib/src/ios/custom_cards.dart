@@ -99,6 +99,19 @@ String liveActivityCardsSwift(LiveActivityApp app) {
     final model = card.surfaces[_Surface.islandExpanded];
     var expandedView = 'EmptyView()';
     if (model != null) {
+      // The fill is dropped from this model itself, so a model shared with
+      // another surface would lose its fill there too.
+      for (final MapEntry(key: surface, value: other)
+          in card.surfaces.entries) {
+        if (surface != _Surface.islandExpanded && identical(other, model)) {
+          throw ArgumentError.value(
+            card.key,
+            'surfaces',
+            'The ${_Surface.islandExpanded.name} layout is the same object '
+                'as the ${surface.name} layout; give it a copy of its own',
+          );
+        }
+      }
       if (model.root case final LayoutBox box) {
         box.background = null;
         // Its stage labels are now over the island, not that fill.

@@ -91,6 +91,23 @@ void main() {
     });
   });
 
+  test('refuses an expanded island layout shared with another surface', () {
+    final shared = lockLayout();
+    expect(
+      () => liveActivityCardsSwift(
+        appWith([
+          rideCard(
+            surfaces: {
+              LiveActivitySurface.lockScreen: shared,
+              LiveActivitySurface.islandExpanded: shared,
+            },
+          ),
+        ]),
+      ),
+      throwsArgumentError,
+    );
+  });
+
   group('the cards Swift', () {
     final lock = lockLayout();
     final expanded = expandedLayout();

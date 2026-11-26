@@ -204,7 +204,8 @@ class LiveActivityDefinition {
   ///
   /// The generators drop the top widget's fill of the
   /// [LiveActivitySurface.islandExpanded] layout (the island is black), so
-  /// that model must not be shared with another surface.
+  /// that model must not be shared with another surface (generating throws
+  /// an [ArgumentError] if it is).
   final Map<LiveActivitySurface, NativeLayoutModel> surfaces;
 
   final LiveActivityAndroid android;
