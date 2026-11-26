@@ -13,6 +13,7 @@
   Kotlin strings (`\r`) and Android XML (`\u000D`) instead of being written
   raw, which broke the Android build. Generated files are otherwise
   unchanged.
+- `homeWidgetViewsSwift` is `final` instead of `const`.
 
 ## 0.2.0
 
