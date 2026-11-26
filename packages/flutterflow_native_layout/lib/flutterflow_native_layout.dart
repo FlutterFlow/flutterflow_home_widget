@@ -8,12 +8,16 @@
 /// [swiftLayoutView] and [remoteViewsLayout], and puts the run time
 /// ([nativeLayoutSwiftBuildingBlocks], [nativeLayoutKotlinViews] and the
 /// constants next to them) in the extension or module once.
+///
+/// A spec written as JSON reads and writes its layouts with
+/// [nativeLayoutFromJson] and [nativeLayoutToJson].
 library;
 
 export 'src/android/kotlin_runtime.dart';
 export 'src/escape.dart';
 export 'src/ios/swift_runtime.dart';
 export 'src/ios/swift_runtime_timed.dart';
+export 'src/layout/layout_json.dart';
 export 'src/layout/layout_model.dart';
 export 'src/layout/remote_views_emitter.dart';
 export 'src/layout/stage_label_colors.dart';
