@@ -18,6 +18,27 @@
   raw, which broke the Android build. Generated files are otherwise
   unchanged.
 - `homeWidgetViewsSwift` is `final` instead of `const`.
+- `flutterflow_native_layout` reads and writes the layout JSON
+  (`nativeLayoutFromJson`, `nativeLayoutToJson`); this package's JSON uses
+  it, so the format is the same. The forms only a Live Activity card draws
+  (`countUp`, an image `value`, `timed` and `stages` bars) are an error in a
+  widget's layout instead of being ignored.
+- `flutterflow_live_activity` can be used on its own, as this package can:
+  - a JSON spec (`liveActivityAppFromJson`, `liveActivityAppToJson`) with
+    `specVersion`; fixed templates are presets; reading, writing and reading
+    again generates the same files;
+  - `validateLiveActivityApp`: the spec's limits (24 values, 4 Image values,
+    80 nodes a layout, 2 to 6 stages), value types, surfaces, Android slots,
+    taps and card heights, with paths, and warnings that do not stop
+    generation;
+  - a `flutterflow_live_activity` command with `validate`, `generate` and
+    `apply` (`applyLiveActivities` in `io.dart`), which adds the Live
+    Activities to a `flutter create` app and changes nothing when run again;
+  - a typed API, `package:ff_live_activity/live_activities.dart`: one class
+    per activity with typed `start`, `update` and `end` over
+    `FFLiveActivity`. `generateLiveActivityFiles` does not include it
+    (`liveActivityTypedApiFiles` does), so its output is unchanged;
+  - `example/live_activities.json`.
 
 ## 0.2.0
 
