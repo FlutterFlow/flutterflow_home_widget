@@ -36,11 +36,13 @@ const kKotlinStringEscapes = {
   r'\': r'\\',
   '"': r'\"',
   r'$': r'\$',
+  '\r': r'\r',
   '\n': r'\n',
 };
 
 /// An Android string in an XML attribute: the XML entities, then the
-/// characters Android's string parsing treats specially.
+/// characters Android's string parsing treats specially. A carriage return
+/// is written as `\u000D`: left raw, the XML parser turns it into a space.
 const kAndroidXmlAttributeEscapes = {
   '&': '&amp;',
   '<': '&lt;',
@@ -50,6 +52,7 @@ const kAndroidXmlAttributeEscapes = {
   "'": r"\'",
   '@': r'\@',
   '?': r'\?',
+  '\r': r'\u000D',
   '\n': r'\n',
 };
 
@@ -63,5 +66,6 @@ const kAndroidXmlTextEscapes = {
   "'": r"\'",
   '@': r'\@',
   '?': r'\?',
+  '\r': r'\u000D',
   '\n': r'\n',
 };

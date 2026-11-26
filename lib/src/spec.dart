@@ -9,9 +9,8 @@
 library;
 
 import 'package:flutterflow_home_widget/src/contract.dart';
-import 'package:flutterflow_home_widget/src/escape.dart';
-import 'package:flutterflow_home_widget/src/layout/layout_model.dart';
 import 'package:flutterflow_home_widget/src/refresh.dart';
+import 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
 
 /// A widget size. The first three are Home Screen sizes (iOS and Android),
 /// the last three Lock Screen sizes (iOS 16 and later only).
@@ -35,27 +34,31 @@ enum HomeWidgetSize {
   bool get isLockScreen => index >= HomeWidgetSize.accessoryCircular.index;
 }
 
-/// The type of a widget value. Every value travels to the widget as a string;
-/// [encoder] is the plugin's helper that writes it (null: sent as is).
-enum HomeWidgetValueType {
-  string('string', null),
-  integer('integer', 'encodeInt'),
-  double('double', 'encodeDouble'),
-  boolean('boolean', 'encodeBool'),
-  dateTime('dateTime', 'encodeDateTime'),
-  color('color', 'encodeColor');
+/// The type of a widget value: the layout core's [LayoutValueType], so a
+/// value's type is the type its layout reads. Every value travels to the
+/// widget as a string; [HomeWidgetValueTypeWire.encoder] is the plugin's
+/// helper that writes it (null: sent as is).
+typedef HomeWidgetValueType = LayoutValueType;
 
-  const HomeWidgetValueType(this.id, this.encoder);
-
+/// What a home screen widget's spec and plugin say of each value type.
+extension HomeWidgetValueTypeWire on LayoutValueType {
   /// The type's name in JSON.
-  final String id;
+  String get id => name;
 
   /// Static helper of the Dart plugin class that encodes a value of this type
   /// into its wire string; null for text.
-  final String? encoder;
+  String? get encoder => switch (this) {
+    LayoutValueType.string => null,
+    LayoutValueType.integer => 'encodeInt',
+    LayoutValueType.double => 'encodeDouble',
+    LayoutValueType.boolean => 'encodeBool',
+    LayoutValueType.dateTime => 'encodeDateTime',
+    LayoutValueType.color => 'encodeColor',
+  };
 
   /// Whether the value is a number.
-  bool get isNumber => this == integer || this == double;
+  bool get isNumber =>
+      this == LayoutValueType.integer || this == LayoutValueType.double;
 }
 
 /// One value a widget shows, set by the app (or a refresh, or a button).

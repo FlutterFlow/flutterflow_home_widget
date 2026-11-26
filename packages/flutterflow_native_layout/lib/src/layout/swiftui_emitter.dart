@@ -1,4 +1,4 @@
-/// SwiftUI for a home widget layout.
+/// SwiftUI for a native layout (a home screen widget's or a Live Activity's).
 ///
 /// Each layout becomes one `View` struct that reads the widget's values
 /// through `FFValues` (defined in `HomeWidgetViews.swift`). SwiftUI sizes
@@ -16,26 +16,41 @@
 /// - A text bound to a date counts down to it, like `Text(_:style: .timer)`.
 library;
 
-import 'package:flutterflow_home_widget/src/layout/layout_model.dart';
-import 'package:flutterflow_home_widget/src/escape.dart';
+import 'package:flutterflow_native_layout/src/escape.dart';
+import 'package:flutterflow_native_layout/src/ios/swift_runtime.dart'
+    show SwiftCountdownStyle;
+import 'package:flutterflow_native_layout/src/layout/layout_model.dart';
 
 /// Swift struct name of a layout's view.
 String swiftLayoutViewName(String widgetKey, String sizeName) =>
     'FFLayout_${identifierPart(widgetKey)}_$sizeName';
 
 /// The Swift source of [model]'s view, named [viewName]. [widgetKey] is the
-/// widget's key, which its buttons change.
+/// widget's key, which its buttons change. [countdown] is how the run time
+/// draws `FFCountdownText` (see `nativeLayoutSwiftBuildingBlocks`).
 String swiftLayoutView(
   String viewName,
-  HomeWidgetLayoutModel model, {
+  NativeLayoutModel model, {
   String widgetKey = '',
+  LayoutRootMode rootMode = LayoutRootMode.widget,
+  SwiftCountdownStyle countdown = SwiftCountdownStyle.fitted,
 }) {
   final root = model.root;
-  var body = root == null
-      ? 'Color.clear'
-      : _SwiftEmitter(widgetKey).view(root, 2, _Space.root);
+  final fit = rootMode.fitHeight;
+  var body =
+      root == null
+          ? (fit ? 'Color.clear.frame(height: 0)' : 'Color.clear')
+          : _SwiftEmitter(
+            widgetKey,
+            countdown,
+          ).view(root, 2, fit ? _Space.fitHeightRoot : _Space.root);
+  // A layout that fits its height takes the surface's width and the height
+  // of what is in it, whatever height the surface offers.
   body +=
-      '\n      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)';
+      fit
+          ? '\n      .frame(maxWidth: .infinity, alignment: .topLeading)'
+              '\n      .fixedSize(horizontal: false, vertical: true)'
+          : '\n      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)';
   switch (model.tap) {
     case LayoutOpenPage page:
       body += '\n      .widgetURL(${swiftPageUrl(page)})';
@@ -44,16 +59,50 @@ String swiftLayoutView(
     case null:
       break;
   }
+  // The pictures of the Image values the layout shows, loaded by the host
+  // (see [swiftLayoutViewInit]). Only a layout that shows one takes them.
+  final images =
+      model.imageParamKeys.isEmpty
+          ? ''
+          : '\n  var $kSwiftLayoutImagesProperty: [String: UIImage] = [:]';
   return '''
 
 struct $viewName: View {
-  let values: FFValues
+  let values: FFValues$images
 
   var body: some View {
     $body
   }
 }
 ''';
+}
+
+/// The property of a layout's view that holds the pictures of its Image
+/// values, by value key. A view has it only when its layout shows an Image
+/// value ([NativeLayoutModel.imageParamKeys] is not empty).
+const kSwiftLayoutImagesProperty = 'images';
+
+/// The Swift expression that makes [model]'s view, named [viewName].
+/// [values] is the host's `FFValues` expression. [images] is the host's
+/// `[String: UIImage]` expression: the already loaded picture of each Image
+/// value, by value key (a value with no picture yet is left out, and its
+/// fallback is drawn). It is passed only to a view that takes it.
+String swiftLayoutViewInit(
+  String viewName,
+  NativeLayoutModel model, {
+  String values = 'values',
+  String images = 'images',
+}) =>
+    model.imageParamKeys.isEmpty
+        ? '$viewName(values: $values)'
+        : '$viewName(values: $values, $kSwiftLayoutImagesProperty: $images)';
+
+/// Black or white, whichever reads better on [argb].
+int _onColor(int argb) {
+  final r = (argb >> 16) & 0xFF;
+  final g = (argb >> 8) & 0xFF;
+  final b = argb & 0xFF;
+  return (r * 299 + g * 587 + b * 114) / 1000 >= 150 ? 0xFF000000 : 0xFFFFFFFF;
 }
 
 String _swiftOptional(double? value) => value == null ? 'nil' : _num(value);
@@ -138,6 +187,9 @@ class _Space {
 
   static const root = _Space(boundedWidth: true, boundedHeight: true);
 
+  /// The root of a layout that fits its height ([LayoutRootMode.fitHeight]).
+  static const fitHeightRoot = _Space(boundedWidth: true, boundedHeight: false);
+
   final bool boundedWidth;
   final bool boundedHeight;
   final bool forceWidth;
@@ -155,20 +207,25 @@ _Condition _or(Iterable<_Condition> conditions) {
 }
 
 class _SwiftEmitter {
-  _SwiftEmitter(this.widgetKey);
+  _SwiftEmitter(this.widgetKey, this.countdown);
 
   /// The widget's key, which its buttons change.
   final String widgetKey;
 
+  /// How the run time draws `FFCountdownText`.
+  final SwiftCountdownStyle countdown;
+
   String _pad(int depth) => '  ' * depth;
 
-  String _paint(LayoutPaint paint) => paint.paramKey != null
-      ? 'values.color(${swiftString(paint.paramKey!)})'
-      : swiftColor(paint.color!);
+  String _paint(LayoutPaint paint) =>
+      paint.paramKey != null
+          ? 'values.color(${swiftString(paint.paramKey!)})'
+          : swiftColor(paint.color!);
 
-  _Condition _visible(LayoutNode node) => node.visibleParam == null
-      ? 'true'
-      : 'values.bool(${swiftString(node.visibleParam!)})';
+  _Condition _visible(LayoutNode node) =>
+      node.visibleParam == null
+          ? 'true'
+          : 'values.bool(${swiftString(node.visibleParam!)})';
 
   String _alignment(LayoutAlignment a) {
     final h = a.x < -0.33 ? 'leading' : (a.x > 0.33 ? 'trailing' : '');
@@ -179,10 +236,11 @@ class _SwiftEmitter {
     return '.$v${h[0].toUpperCase()}${h.substring(1)}';
   }
 
-  String _padding(LayoutInsets p) => p.isZero
-      ? ''
-      : '.padding(EdgeInsets(top: ${_num(p.top)}, leading: ${_num(p.left)}, '
-            'bottom: ${_num(p.bottom)}, trailing: ${_num(p.right)}))';
+  String _padding(LayoutInsets p) =>
+      p.isZero
+          ? ''
+          : '.padding(EdgeInsets(top: ${_num(p.top)}, leading: ${_num(p.left)}, '
+              'bottom: ${_num(p.bottom)}, trailing: ${_num(p.right)}))';
 
   /// A frame that fills the axes given, aligning the content in it.
   String _fill({
@@ -247,9 +305,10 @@ class _SwiftEmitter {
     // An Alignment is an Align around the node and its padding: it takes
     // the room the parent bounds, and the node inside is loose.
     final align = node.align;
-    final inner = align == null
-        ? space
-        : const _Space(boundedWidth: true, boundedHeight: true);
+    final inner =
+        align == null
+            ? space
+            : const _Space(boundedWidth: true, boundedHeight: true);
     var code = switch (node) {
       LayoutBox() => _box(node, depth, inner),
       LayoutFlex() => _flex(node, depth, inner),
@@ -463,11 +522,12 @@ class _SwiftEmitter {
     };
     // A forced cross axis (a stretching parent, a sized box) widens the
     // flex itself; its children keep their cross alignment within it.
-    final crossFill = (h ? space.forceHeight : space.forceWidth)
-        ? (h
-              ? '.frame(maxHeight: .infinity, alignment: ${_alignment(LayoutAlignment(-1, _crossValue(flex.crossAxis)))})'
-              : '.frame(maxWidth: .infinity, alignment: ${_alignment(LayoutAlignment(_crossValue(flex.crossAxis), -1))})')
-        : '';
+    final crossFill =
+        (h ? space.forceHeight : space.forceWidth)
+            ? (h
+                ? '.frame(maxHeight: .infinity, alignment: ${_alignment(LayoutAlignment(-1, _crossValue(flex.crossAxis)))})'
+                : '.frame(maxWidth: .infinity, alignment: ${_alignment(LayoutAlignment(_crossValue(flex.crossAxis), -1))})')
+            : '';
     return '$stack(alignment: $cross, spacing: 0) {\n'
         '${lines.join('\n')}\n${_pad(depth)}}$fill$crossFill';
   }
@@ -536,14 +596,29 @@ class _SwiftEmitter {
     final content = text.content;
     final base = switch (content) {
       LayoutStaticText(:final text) => 'Text(${swiftString(text)})',
+      // A fitted countdown sits in its own width where the text is aligned;
+      // start is FFCountdownText's default. A full-width one has no
+      // alignment.
       LayoutParamText(:final paramKey, isCountdown: true) =>
-        'FFCountdownText(end: values.date(${swiftString(paramKey)}))',
+        'FFCountdownText(end: values.date(${swiftString(paramKey)})'
+            '${countdown == SwiftCountdownStyle.fullWidth ? '' : switch (text.textAlign) {
+                  LayoutTextAlign.center => ', alignment: .center',
+                  LayoutTextAlign.end => ', alignment: .trailing',
+                  LayoutTextAlign.start => '',
+                }})',
+      // Counts up from the date; sized and aligned as the countdown is.
+      LayoutParamText(:final paramKey, isCountUp: true) =>
+        'FFCountUpText(start: values.date(${swiftString(paramKey)})'
+            '${switch (text.textAlign) {
+              LayoutTextAlign.center => ', alignment: .center',
+              LayoutTextAlign.end => ', alignment: .trailing',
+              LayoutTextAlign.start => '',
+            }})',
       LayoutParamText(:final paramKey) =>
         'Text(${_case('values.text(${swiftString(paramKey)})', text.textCase)})',
     };
-    final staticCase = content is LayoutStaticText
-        ? text.textCase
-        : LayoutCase.none;
+    final staticCase =
+        content is LayoutStaticText ? text.textCase : LayoutCase.none;
     final weight = switch (text.fontWeight) {
       <= 100 => '.ultraLight',
       <= 200 => '.thin',
@@ -564,9 +639,9 @@ class _SwiftEmitter {
       staticCase == LayoutCase.none
           ? base
           : 'Text(${swiftString(switch (staticCase) {
-              LayoutCase.upper => (content as LayoutStaticText).text.toUpperCase(),
-              _ => (content as LayoutStaticText).text.toLowerCase(),
-            })})',
+            LayoutCase.upper => (content as LayoutStaticText).text.toUpperCase(),
+            _ => (content as LayoutStaticText).text.toLowerCase(),
+          })})',
     );
     buffer.write(
       '.font(.system(size: ${_num(text.fontSize)}, weight: $weight))',
@@ -605,17 +680,23 @@ class _SwiftEmitter {
     final width = _side(image.width, forced: space.forceWidth);
     final height = _side(image.height, forced: space.forceHeight);
     final picture =
-        'FFAssetImage(path: ${swiftString(image.assetPath)}, contentMode: $mode)';
+        image.paramKey == null
+            ? 'FFAssetImage(path: ${swiftString(image.assetPath)}, contentMode: $mode)'
+            // The picture the host loaded for the value, else the fallback.
+            : 'FFValueImage(image: $kSwiftLayoutImagesProperty[${swiftString(image.paramKey!)}], '
+                'fallback: ${image.assetPath.isEmpty ? 'nil' : swiftString(image.assetPath)}, '
+                'contentMode: $mode)';
     // A filling image takes the room it is given, as Flutter's does. An
     // aspect-filled SwiftUI image reports its own, larger size instead, which
     // would grow a Stack around it past the widget; so it is drawn over a
     // clear view of that room.
     final fills = width.fill || height.fill;
-    final buffer = StringBuffer(fills ? 'Color.clear' : picture)
-      ..write(_fixedFrame(width, height))
-      ..write(
-        _fill(width: width.fill, height: height.fill, alignment: '.center'),
-      );
+    final buffer =
+        StringBuffer(fills ? 'Color.clear' : picture)
+          ..write(_fixedFrame(width, height))
+          ..write(
+            _fill(width: width.fill, height: height.fill, alignment: '.center'),
+          );
     if (fills) {
       buffer.write('.overlay($picture)');
     }
@@ -644,19 +725,74 @@ class _SwiftEmitter {
       '.frame(maxWidth: .infinity)'
       '.frame(height: ${_num(divider.space)})';
 
+  /// A Stages bar: `FFStagesBar` (swift_runtime.dart) draws the stages,
+  /// the tracker and the labels from the current stage.
+  String _stages(LayoutProgress progress, LayoutStages stages) {
+    final items = [
+      for (final stage in stages.stages)
+        'FFStage(label: ${switch (stage.label) {
+          LayoutStaticText(:final text) => swiftString(text),
+          LayoutParamText(:final paramKey) => 'values.text(${swiftString(paramKey)})',
+        }}${stage.iconCodePoint == null ? '' : ', icon: 0x${stage.iconCodePoint!.toRadixString(16)}'})',
+    ];
+    final tracker = stages.trackerCodePoint;
+    final onColor = LayoutColor(
+      _onColor(progress.color.light),
+      _onColor(progress.color.dark),
+    );
+    return 'FFStagesBar(stages: [${items.join(', ')}], '
+        'current: values.double(${swiftString(stages.currentParamKey)}), '
+        '${stages.progressParamKey == null ? '' : 'inside: values.double(${swiftString(stages.progressParamKey!)}), '}'
+        'color: ${swiftColor(progress.color)}, '
+        'upcoming: ${swiftColor(stages.upcomingColor)}, '
+        'height: ${_num(progress.size)}, '
+        'cornerRadius: ${_num(progress.barRadius)}'
+        '${tracker == null ? '' : ', tracker: 0x${tracker.toRadixString(16)}, trackerColor: ${swiftColor(onColor)}'}'
+        ', showLabels: ${stages.showLabels}, '
+        'labelSize: ${_num(stages.labelSize)}, '
+        'labelColor: ${swiftColor(stages.labelColor)}, '
+        'upcomingLabelColor: ${swiftColor(stages.upcomingLabelColor)})';
+  }
+
   String _progress(LayoutProgress progress, _Space space) {
-    final value = progress.value.paramKey != null
-        ? 'values.double(${swiftString(progress.value.paramKey!)})'
-        : _num(progress.value.value!);
+    final value =
+        progress.value.paramKey != null
+            ? 'values.double(${swiftString(progress.value.paramKey!)})'
+            : _num(progress.value.value!);
     final colors =
         'color: ${swiftColor(progress.color)}, track: ${swiftColor(progress.trackColor)}';
+    if (progress.isTimed) {
+      return _timedProgress(progress, space, colors);
+    }
     if (progress.circular) {
       return 'FFRingProgress(value: $value, $colors, '
           'diameter: ${_num(progress.size)}, thickness: ${_num(progress.thickness)}, '
           'startAngle: ${_num(progress.startAngle)})';
     }
     final width = _side(progress.width, forced: space.forceWidth);
+    if (progress.stages case final stages?) {
+      return '${_stages(progress, stages)}'
+          '${_fixedFrame(width, const LayoutLength.fit())}'
+          '${_fill(width: width.fill, height: false, alignment: '.leading')}';
+    }
     return 'FFBarProgress(value: $value, $colors, height: ${_num(progress.size)}, '
+        'cornerRadius: ${_num(progress.barRadius)})'
+        '${_fixedFrame(width, const LayoutLength.fit())}'
+        '${_fill(width: width.fill, height: false, alignment: '.leading')}';
+  }
+
+  /// A progress indicator that fills between two date values on its own.
+  String _timedProgress(LayoutProgress progress, _Space space, String colors) {
+    final span =
+        'start: values.date(${swiftString(progress.timedStart!)}), '
+        'end: values.date(${swiftString(progress.timedEnd!)})';
+    if (progress.circular) {
+      return 'FFTimedRingProgress($span, $colors, '
+          'diameter: ${_num(progress.size)}, thickness: ${_num(progress.thickness)}, '
+          'startAngle: ${_num(progress.startAngle)})';
+    }
+    final width = _side(progress.width, forced: space.forceWidth);
+    return 'FFTimedBarProgress($span, $colors, height: ${_num(progress.size)}, '
         'cornerRadius: ${_num(progress.barRadius)})'
         '${_fixedFrame(width, const LayoutLength.fit())}'
         '${_fill(width: width.fill, height: false, alignment: '.leading')}';

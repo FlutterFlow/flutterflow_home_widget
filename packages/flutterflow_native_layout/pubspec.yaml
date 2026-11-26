@@ -1,0 +1,15 @@
+name: flutterflow_native_layout
+description: >-
+  The layout model that native home screen widgets and Live Activities are
+  drawn from, its SwiftUI and Android RemoteViews emitters, the escaping they
+  share and the Swift and Kotlin run time their generated code calls.
+version: 0.2.0
+repository: https://github.com/FlutterFlow/flutterflow_home_widget
+publish_to: none
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

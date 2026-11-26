@@ -1,8 +1,7 @@
 /// The layout model both platforms draw from, and its two emitters (SwiftUI
-/// and Android RemoteViews), with the escaping they share.
+/// and Android RemoteViews), with the escaping they share: the
+/// `flutterflow_native_layout` package, which this package draws its
+/// layouts with.
 library;
 
-export 'src/escape.dart';
-export 'src/layout/layout_model.dart';
-export 'src/layout/remote_views_emitter.dart';
-export 'src/layout/swiftui_emitter.dart';
+export 'package:flutterflow_native_layout/flutterflow_native_layout.dart';

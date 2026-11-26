@@ -14,6 +14,10 @@ jobs:
         with:
           sdk: stable
       - run: dart pub get
+      - run: dart pub get
+        working-directory: packages/flutterflow_native_layout
       - run: dart format --output=none --set-exit-if-changed .
       - run: dart analyze --fatal-infos
       - run: dart test
+      - run: dart test
+        working-directory: packages/flutterflow_native_layout

@@ -1,4 +1,5 @@
-/// A home screen widget layout as the native code draws it.
+/// A native layout (a home screen widget's or a Live Activity card's) as the
+/// native code draws it.
 ///
 /// Both emitters (SwiftUI for iOS, RemoteViews for Android) draw from this
 /// model, so the two platforms share one reading of every widget and
@@ -7,12 +8,48 @@
 /// design never silently differs from what ships.
 library;
 
-import 'package:flutterflow_home_widget/src/escape.dart';
-import 'package:flutterflow_home_widget/src/spec.dart';
+import 'package:flutterflow_native_layout/src/escape.dart';
+
+/// What a [LayoutIssue] is about, for callers that give each kind its own
+/// error code.
+enum LayoutIssueKind {
+  /// A widget type outside the list.
+  widget,
+
+  /// A property set to something the native code cannot draw.
+  property,
+
+  /// A binding to something other than one of the values, to a value of the
+  /// wrong type, or one that changes the value first.
+  binding,
+
+  /// An icon outside Material Icons.
+  icon,
+
+  /// A Stages bar with too few or too many stages.
+  stagesCount,
+
+  /// A Stages bar whose current stage (or progress in it) is not a value.
+  stagesBinding,
+
+  /// A layout that shows more Image values than a card may have.
+  imageValueLimit,
+
+  /// An On Tap that is a button (Toggle, Change Number or Clear of a home
+  /// screen widget) on a layout that has no buttons: a card's.
+  button,
+}
 
 /// Something in a layout the native code cannot draw faithfully.
 class LayoutIssue {
-  const LayoutIssue(this.nodeKey, this.message);
+  const LayoutIssue(
+    this.nodeKey,
+    this.message, {
+    this.kind = LayoutIssueKind.property,
+  });
+
+  /// What the issue is about.
+  final LayoutIssueKind kind;
 
   /// Key of the node the issue is on.
   final String nodeKey;
@@ -108,13 +145,24 @@ class LayoutStaticText extends LayoutText {
   final String text;
 }
 
+/// The type of a value a layout shows. Only a date draws differently (it
+/// counts down to its time, or up from it); the others show as text.
+enum LayoutValueType { string, integer, double, boolean, dateTime, color }
+
 /// The value of a parameter. A date parameter counts down to its time.
 class LayoutParamText extends LayoutText {
-  const LayoutParamText(this.paramKey, this.type);
+  const LayoutParamText(this.paramKey, this.type, {this.countUp = false});
   final String paramKey;
-  final HomeWidgetValueType type;
+  final LayoutValueType type;
 
-  bool get isCountdown => type == HomeWidgetValueType.dateTime;
+  /// A date parameter only: the text shows the time since the date (0:00
+  /// before it) instead of the time left until it.
+  final bool countUp;
+
+  bool get isCountdown => type == LayoutValueType.dateTime && !countUp;
+
+  /// Whether the text counts up from its date.
+  bool get isCountUp => type == LayoutValueType.dateTime && countUp;
 }
 
 /// A number from 0 to 1 that is fixed or a parameter.
@@ -248,7 +296,7 @@ class LayoutBox extends LayoutNode {
   LayoutNode? child;
 
   @override
-  Iterable<LayoutNode> get children => [?child];
+  Iterable<LayoutNode> get children => [if (child != null) child!];
 }
 
 class LayoutFlex extends LayoutNode {
@@ -309,11 +357,16 @@ class LayoutTextNode extends LayoutNode {
 }
 
 class LayoutImage extends LayoutNode {
-  LayoutImage(super.nodeKey, this.assetPath);
+  LayoutImage(super.nodeKey, this.assetPath, {this.paramKey});
 
   /// The Flutter asset path the app ships the image under
-  /// (`assets/images/...`).
+  /// (`assets/images/...`). With [paramKey] it is the fallback, drawn while
+  /// the value has no picture, and empty when the value has none.
   final String assetPath;
+
+  /// The Image value the node shows; null for a fixed asset. The host loads
+  /// the value's picture and hands it to the view (see the emitters).
+  final String? paramKey;
   LayoutLength width = const LayoutLength.fit();
   LayoutLength height = const LayoutLength.fit();
   LayoutFit fit = LayoutFit.contain;
@@ -368,13 +421,173 @@ class LayoutProgress extends LayoutNode {
 
   /// Circular: where the arc starts, in degrees clockwise from the top.
   double startAngle = 0;
+
+  /// Timed progress: the two date parameters the indicator fills between
+  /// on its own, with no update from the app. Both set, or both null (the
+  /// indicator then shows [value]).
+  String? timedStart;
+  String? timedEnd;
+
+  bool get isTimed => timedStart != null && timedEnd != null;
+
+  /// Linear only: the bar drawn as a row of stages; null for one bar. The
+  /// bar's [value] is then not read.
+  LayoutStages? stages;
 }
 
-/// A layout read from its widget class: the root node and every issue found.
-class HomeWidgetLayoutModel {
-  HomeWidgetLayoutModel(this.root, this.issues, {this.tap});
+/// One stage of a Stages bar.
+class LayoutStage {
+  const LayoutStage(this.key, this.label, this.iconCodePoint);
+
+  final String key;
+
+  /// The label: fixed text or a String value.
+  final LayoutText label;
+
+  /// The stage's Material Icons code point; null without an icon.
+  final int? iconCodePoint;
+}
+
+/// The plain values a host reads of one Stages bar, as the design sets them:
+/// no checks, no fallbacks beyond those named.
+class LayoutStagesSpec {
+  const LayoutStagesSpec({
+    required this.labels,
+    required this.labelParamKeys,
+    required this.currentParamKey,
+    required this.progressParamKey,
+    required this.trackerCodePoint,
+    required this.doneArgb,
+    required this.upcomingArgb,
+    required this.hideLabels,
+  });
+
+  /// Each stage's fixed label, or its key when it has none.
+  final List<String> labels;
+
+  /// The String value each stage's label is bound to; '' when fixed.
+  final List<String> labelParamKeys;
+
+  /// The Integer value that is the current stage; '' when not bound.
+  final String currentParamKey;
+
+  /// The Double value inside the stage; '' when not bound.
+  final String progressParamKey;
+
+  /// The tracker icon's code point; 0 for none.
+  final int trackerCodePoint;
+
+  /// The progress and upcoming colours (theme colours resolved, 0xAARRGGBB);
+  /// null when the design sets none.
+  final int? doneArgb;
+  final int? upcomingArgb;
+
+  final bool hideLabels;
+}
+
+/// A linear ProgressBar in Stages mode: a row of stages, those before the
+/// current one done, those after it upcoming. Done and current stages take
+/// the bar's progress colour.
+class LayoutStages {
+  LayoutStages({
+    required this.stages,
+    required this.currentParamKey,
+    required this.upcomingColor,
+    required this.labelColor,
+    required this.upcomingLabelColor,
+  });
+
+  /// The size of the disc the tracker icon rides in, and of its glyph.
+  static const double trackerSize = 22;
+  static const double trackerGlyphSize = 14;
+
+  /// The gap between two stages, and between the bar and the labels.
+  static const double gap = 4;
+
+  /// Material Icons `check_circle`: shown on a done stage's label.
+  static const int doneCodePoint = 0xe159;
+
+  final List<LayoutStage> stages;
+
+  /// The Integer value that is the current stage: 0 is the first, below 0
+  /// none has started, the number of stages or more all are done.
+  final String currentParamKey;
+
+  /// The Double value (0 to 1) that places the tracker inside the current
+  /// stage; null puts it in the middle.
+  String? progressParamKey;
+
+  /// The Material Icons code point of the tracker icon; null for none.
+  int? trackerCodePoint;
+
+  /// The colour of the stages that have not started.
+  final LayoutColor upcomingColor;
+
+  bool showLabels = true;
+  double labelSize = 11;
+
+  /// The colour of done and current labels, and of upcoming ones.
+  LayoutColor labelColor;
+  LayoutColor upcomingLabelColor;
+
+  /// The theme's colour for each when the design sets none (labels have no
+  /// colour of their own for upcoming stages; done and current ones take the
+  /// bar's text colour). `fitStageLabelColors` starts from these.
+  LayoutColor? themedLabelColor;
+  LayoutColor? themedUpcomingLabelColor;
+
+  /// Whether any stage has an icon of its own.
+  bool get hasStageIcons => stages.any((s) => s.iconCodePoint != null);
+
+  /// The values the bar reads.
+  Iterable<String> get paramKeys => [
+    currentParamKey,
+    if (progressParamKey != null) progressParamKey!,
+    for (final stage in stages)
+      if (stage.label case LayoutParamText(:final paramKey)) paramKey,
+  ];
+}
+
+/// How the top of a layout sits in the surface it is drawn on.
+///
+/// A home screen widget has a size of its own: the layout fills it, on the
+/// widget's background ([widget], the default). A card that is as tall as
+/// what is in it (a Live Activity) fits its height instead, and a surface
+/// that has its own background draws none behind the layout.
+class LayoutRootMode {
+  const LayoutRootMode({this.fitHeight = false, this.background = true});
+
+  /// Fills the surface, on the surface's background: a home screen widget.
+  static const widget = LayoutRootMode();
+
+  /// Whether the layout is as tall as its content rather than as tall as
+  /// the surface. Its height is then unbounded, as a Column's child's is:
+  /// nothing in it can fill the height or share out free height.
+  final bool fitHeight;
+
+  /// Whether the layout's frame draws the surface's background behind it
+  /// and clips to it. Android only (`ff_home_widget_background`): on iOS
+  /// the background belongs to what holds the view, not to the view. The
+  /// top widget's own fill is drawn either way; to drop it, clear
+  /// `background` on the model's root.
+  final bool background;
+}
+
+/// A layout read from its design: the root node and every issue found.
+class NativeLayoutModel {
+  NativeLayoutModel(
+    this.root,
+    this.issues, {
+    this.tap,
+    this.stagesSpecs = const [],
+  });
 
   final LayoutNode? root;
+
+  /// What a host's spec table reads of each Stages bar the design holds, in
+  /// the order met. Unlike [stageBars], also for a bar the layout refused
+  /// (the issues say so), so a refused design still has its spec.
+  final List<LayoutStagesSpec> stagesSpecs;
   final List<LayoutIssue> issues;
 
   /// What a tap on the widget does; null opens the app as it is.
@@ -382,7 +595,7 @@ class HomeWidgetLayoutModel {
 
   /// Every tap: the widget's and its nodes'.
   Iterable<LayoutTap> get taps => [
-    ?tap,
+    if (tap != null) tap!,
     for (final node in nodes)
       if (node.tap != null) node.tap!,
   ];
@@ -391,6 +604,17 @@ class HomeWidgetLayoutModel {
   Iterable<LayoutOpenPage> get openPages => taps.whereType<LayoutOpenPage>();
 
   Iterable<LayoutNode> get nodes => root?.all ?? const [];
+
+  /// The Image values the layout shows, by key, in the order met. The host
+  /// loads their pictures and hands them to the layout's view or binder.
+  Set<String> get imageParamKeys => {
+    for (final node in nodes)
+      if (node case LayoutImage(:final paramKey?)) paramKey,
+  };
+
+  /// The Stages bars of the layout, in the order met.
+  Iterable<LayoutProgress> get stageBars =>
+      nodes.whereType<LayoutProgress>().where((bar) => bar.stages != null);
 
   /// The parameters the layout reads, by key.
   Set<String> get paramKeys => {
@@ -405,6 +629,10 @@ class HomeWidgetLayoutModel {
         paramKey,
       if (node case LayoutProgress(value: LayoutFraction(:final paramKey?)))
         paramKey,
+      if (node case LayoutProgress(:final timedStart?)) timedStart,
+      if (node case LayoutProgress(:final timedEnd?)) timedEnd,
+      if (node case LayoutImage(:final paramKey?)) paramKey,
+      if (node case LayoutProgress(:final stages?)) ...stages.paramKeys,
     ],
     for (final tap in taps)
       ...switch (tap) {
@@ -418,3 +646,6 @@ class HomeWidgetLayoutModel {
       },
   };
 }
+
+/// The name [NativeLayoutModel] had when only home screen widgets drew it.
+typedef HomeWidgetLayoutModel = NativeLayoutModel;

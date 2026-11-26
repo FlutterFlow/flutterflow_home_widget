@@ -1,4 +1,5 @@
-/// Android RemoteViews for a home widget layout.
+/// Android RemoteViews for a native layout (a home screen widget's or a
+/// Live Activity's).
 ///
 /// Each layout becomes a layout XML file, its colour and shape resources,
 /// and a Kotlin binder that sets what depends on the widget's values. Views
@@ -23,8 +24,8 @@
 ///   white bitmaps tinted from those resources for the same reason.
 library;
 
-import 'package:flutterflow_home_widget/src/layout/layout_model.dart';
-import 'package:flutterflow_home_widget/src/escape.dart';
+import 'package:flutterflow_native_layout/src/escape.dart';
+import 'package:flutterflow_native_layout/src/layout/layout_model.dart';
 
 /// What one layout contributes to the plugin's Android resources and code.
 class RemoteViewsLayout {
@@ -50,39 +51,70 @@ class RemoteViewsLayout {
   final String binder;
 }
 
+/// Black or white, whichever reads better on [argb].
+int _onColor(int argb) {
+  final r = (argb >> 16) & 0xFF;
+  final g = (argb >> 8) & 0xFF;
+  final b = argb & 0xFF;
+  return (r * 299 + g * 587 + b * 114) / 1000 >= 150 ? 0xFF000000 : 0xFFFFFFFF;
+}
+
 /// Kotlin object name of a layout's binder.
 String kotlinBinderName(String tag) => 'FFLayout_$tag';
+
+/// What [remoteViewsLayout] starts the name of every resource, view id and
+/// tap key it makes with, unless told otherwise.
+const kRemoteViewsResourcePrefix = 'hw_';
 
 /// Builds the Android side of [model]. [tag] makes its resource names unique
 /// (lower case letters, digits and `_`). [defaults] (the widget's default
 /// values, by parameter key) are written into the XML as the text of bound
 /// texts, so the picker's XML preview (Android 12 to 14, or before the app
-/// publishes its own) shows them.
+/// publishes its own) shows them. [resourcePrefix] starts every name the
+/// layout makes (lower case letters, digits and `_`, ending in `_`); layouts
+/// that share an app's resources need tags or prefixes that cannot meet.
 RemoteViewsLayout remoteViewsLayout(
   String tag,
-  HomeWidgetLayoutModel model, {
+  NativeLayoutModel model, {
   Map<String, String> defaults = const {},
   String widgetKey = '',
+  LayoutRootMode rootMode = LayoutRootMode.widget,
+  String resourcePrefix = kRemoteViewsResourcePrefix,
 }) {
-  final emitter = _RemoteViewsEmitter(tag, defaults, widgetKey);
+  final emitter = _RemoteViewsEmitter(tag, defaults, widgetKey, resourcePrefix);
   final root = model.root;
   // The whole widget's tap first: a node's own tap on top of it wins.
   if (model.tap case final tap?) {
     emitter._bind.add(
-      tapCall('android.R.id.background', 'hw_${tag}_widget', widgetKey, tap),
+      tapCall(
+        'android.R.id.background',
+        '$resourcePrefix${tag}_widget',
+        widgetKey,
+        tap,
+      ),
     );
   }
-  final body = root == null ? '' : emitter.node(root, _Space.root, 1);
-  final layoutName = 'hw_layout_$tag';
-  final xml =
-      '''
+  final fit = rootMode.fitHeight;
+  final body =
+      root == null
+          ? ''
+          : emitter.node(root, fit ? _Space.fitHeightRoot : _Space.root, 1);
+  final layoutName = '${resourcePrefix}layout_$tag';
+  // A layout that fits its height is as tall as what is in it; a surface
+  // with its own background gets no widget background behind the layout.
+  final background =
+      rootMode.background
+          ? '''
+
+    android:background="@drawable/ff_home_widget_background"
+    android:clipToOutline="true"'''
+          : '';
+  final xml = '''
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@android:id/background"
     android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/ff_home_widget_background"
-    android:clipToOutline="true">
+    android:layout_height="${fit ? 'wrap_content' : 'match_parent'}"$background>
 $body
 </FrameLayout>
 ''';
@@ -161,6 +193,9 @@ class _Space {
 
   static const root = _Space(boundedWidth: true, boundedHeight: true);
 
+  /// The root of a layout that fits its height ([LayoutRootMode.fitHeight]).
+  static const fitHeightRoot = _Space(boundedWidth: true, boundedHeight: false);
+
   final bool boundedWidth;
   final bool boundedHeight;
   final bool forceWidth;
@@ -176,11 +211,12 @@ class _Space {
 /// A Kotlin Boolean expression; `true` when it always holds.
 typedef _Condition = String;
 
-_Condition _and(_Condition a, _Condition b) => a == 'false' || b == 'false'
-    ? 'false'
-    : a == 'true'
-    ? b
-    : (b == 'true' ? a : '($a && $b)');
+_Condition _and(_Condition a, _Condition b) =>
+    a == 'false' || b == 'false'
+        ? 'false'
+        : a == 'true'
+        ? b
+        : (b == 'true' ? a : '($a && $b)');
 
 _Condition _not(_Condition a) =>
     a == 'true' ? 'false' : (a == 'false' ? 'true' : '!$a');
@@ -211,9 +247,12 @@ String kotlinString(String value) {
 }
 
 class _RemoteViewsEmitter {
-  _RemoteViewsEmitter(this.tag, this.defaults, this.widgetKey);
+  _RemoteViewsEmitter(this.tag, this.defaults, this.widgetKey, this.prefix);
 
   final String tag;
+
+  /// What every name this layout makes starts with.
+  final String prefix;
 
   /// The widget's key, which its buttons change.
   final String widgetKey;
@@ -221,9 +260,16 @@ class _RemoteViewsEmitter {
   final drawables = <String, String>{};
   final colors = <String, LayoutColor>{};
   final _bind = <String>[];
+
+  /// What draws the Image values' pictures (`bindImages`), and their keys.
+  final _bindImages = <String>[];
+  final _imageKeys = <String>{};
   var _extra = 0;
 
-  String id(LayoutNode node) => 'hw_${tag}_${node.id.toLowerCase()}';
+  String id(LayoutNode node) => '$prefix${tag}_${node.id.toLowerCase()}';
+
+  /// [node]'s view id without the prefix, for the names of its resources.
+  String _name(LayoutNode node) => id(node).substring(prefix.length);
 
   String color(LayoutNode node, String role, LayoutColor value) {
     final name = '${id(node)}_$role';
@@ -233,9 +279,10 @@ class _RemoteViewsEmitter {
 
   String _pad(int depth) => '    ' * depth;
 
-  _Condition _visible(LayoutNode node) => node.visibleParam == null
-      ? 'true'
-      : 'v.bool(${kotlinString(node.visibleParam!)})';
+  _Condition _visible(LayoutNode node) =>
+      node.visibleParam == null
+          ? 'true'
+          : 'v.bool(${kotlinString(node.visibleParam!)})';
 
   void _visibility(String viewId, _Condition condition) {
     if (condition == 'true') return;
@@ -246,19 +293,19 @@ class _RemoteViewsEmitter {
   }
 
   String _gravity(LayoutAlignment a) {
-    final h = a.x < -0.33
-        ? 'start'
-        : (a.x > 0.33 ? 'end' : 'center_horizontal');
+    final h =
+        a.x < -0.33 ? 'start' : (a.x > 0.33 ? 'end' : 'center_horizontal');
     final v = a.y < -0.33 ? 'top' : (a.y > 0.33 ? 'bottom' : 'center_vertical');
     return '$h|$v';
   }
 
-  String _margins(LayoutInsets p, String indent) => p.isZero
-      ? ''
-      : '\n${indent}android:layout_marginStart="${_dp(p.left)}"'
-            '\n${indent}android:layout_marginTop="${_dp(p.top)}"'
-            '\n${indent}android:layout_marginEnd="${_dp(p.right)}"'
-            '\n${indent}android:layout_marginBottom="${_dp(p.bottom)}"';
+  String _margins(LayoutInsets p, String indent) =>
+      p.isZero
+          ? ''
+          : '\n${indent}android:layout_marginStart="${_dp(p.left)}"'
+              '\n${indent}android:layout_marginTop="${_dp(p.top)}"'
+              '\n${indent}android:layout_marginEnd="${_dp(p.right)}"'
+              '\n${indent}android:layout_marginBottom="${_dp(p.bottom)}"';
 
   /// Roboto's line height and ascent, per unit of font size (hhea: ascender
   /// 1900, descender -500, 2048 units per em).
@@ -267,9 +314,10 @@ class _RemoteViewsEmitter {
 
   /// The extra leading of a text with a line height: each line is size ×
   /// height tall where Roboto's own line is [_robotoLine] × size.
-  double _leading(LayoutTextNode text) => text.lineHeight == null
-      ? 0
-      : text.fontSize * (text.lineHeight! - _robotoLine);
+  double _leading(LayoutTextNode text) =>
+      text.lineHeight == null
+          ? 0
+          : text.fontSize * (text.lineHeight! - _robotoLine);
 
   /// A node's margins: its padding, and for a text with a line height the
   /// extra leading above its first line and below its last, split as
@@ -382,6 +430,9 @@ class _RemoteViewsEmitter {
       return 'match_parent';
     }
     final fixed = switch (node) {
+      // A Stages bar is as tall as its bar, tracker and labels.
+      LayoutProgress(stages: != null, :final width) =>
+        horizontal ? width.points : null,
       LayoutBox(:final width, :final height) =>
         (horizontal ? width : height).points,
       LayoutImage(:final width, :final height) =>
@@ -421,11 +472,12 @@ class _RemoteViewsEmitter {
     final wrapperId = '${id(node)}_align';
     final flexParent = space.flexParent;
     final expands = node.flex != null && flexParent != null;
-    String side(bool horizontal) => expands && flexParent == horizontal
-        ? '0dp'
-        : space.bounded(horizontal) || space.forced(horizontal)
-        ? 'match_parent'
-        : 'wrap_content';
+    String side(bool horizontal) =>
+        expands && flexParent == horizontal
+            ? '0dp'
+            : space.bounded(horizontal) || space.forced(horizontal)
+            ? 'match_parent'
+            : 'wrap_content';
     if (visibility) _visibility(wrapperId, _visible(node));
     final inner = _body(
       node,
@@ -503,19 +555,20 @@ class _RemoteViewsEmitter {
     final indent = _pad(depth);
     final buffer = StringBuffer('$indent<FrameLayout$common');
     if (box.background != null || box.borderWidth > 0) {
-      final drawable = 'hw_bg_${id(box).substring(3)}';
+      final drawable = '${prefix}bg_${_name(box)}';
       final fill = box.background?.color;
-      final solid = fill != null
-          ? color(box, 'bg', fill)
-          : box.background?.paramKey != null
-          ? '#FFFFFFFF'
-          : '#00000000';
-      final stroke = box.borderWidth > 0 && box.borderColor != null
-          ? '\n    <stroke android:width="${_dp(box.borderWidth)}" '
-                'android:color="${color(box, 'border', box.borderColor!)}" />'
-          : '';
-      drawables[drawable] =
-          '''
+      final solid =
+          fill != null
+              ? color(box, 'bg', fill)
+              : box.background?.paramKey != null
+              ? '#FFFFFFFF'
+              : '#00000000';
+      final stroke =
+          box.borderWidth > 0 && box.borderColor != null
+              ? '\n    <stroke android:width="${_dp(box.borderWidth)}" '
+                  'android:color="${color(box, 'border', box.borderColor!)}" />'
+              : '';
+      drawables[drawable] = '''
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="$solid" />
@@ -741,10 +794,11 @@ class _RemoteViewsEmitter {
 
   String _text(LayoutTextNode text, String common, String attr, String indent) {
     final decorated = text.underline || text.strikethrough;
-    String styled(String kotlinText) => decorated
-        ? 'FFLayoutViews.decorated($kotlinText, '
-              'underline = ${text.underline}, strike = ${text.strikethrough})'
-        : kotlinText;
+    String styled(String kotlinText) =>
+        decorated
+            ? 'FFLayoutViews.decorated($kotlinText, '
+                'underline = ${text.underline}, strike = ${text.strikethrough})'
+            : kotlinText;
     switch (text.content) {
       case LayoutStaticText(text: final value):
         final shown = _cased(value, text.textCase);
@@ -764,6 +818,14 @@ class _RemoteViewsEmitter {
         );
         return '$indent<Chronometer$common${_textAttrs(text, attr)}'
             '\n${attr}android:countDown="true" />';
+      // Counts up from the date on its own (cards only; the reader gives no
+      // count-up text to a home screen widget).
+      case LayoutParamText(:final paramKey, isCountUp: true):
+        _bind.add(
+          'FFLayoutViews.countUp(views, R.id.${id(text)}, '
+          'v.date(${kotlinString(paramKey)}), v.frozen)',
+        );
+        return '$indent<Chronometer$common${_textAttrs(text, attr)} />';
       case LayoutParamText(:final paramKey):
         final value = switch (text.textCase) {
           LayoutCase.upper => 'v.text(${kotlinString(paramKey)}).uppercase()',
@@ -791,7 +853,29 @@ class _RemoteViewsEmitter {
     };
     final width = space.forceWidth ? null : image.width.points;
     final height = space.forceHeight ? null : image.height.points;
-    if (width != null && height != null) {
+    final sized = width != null && height != null;
+    if (image.paramKey case final key?) {
+      // An Image value: the host hands the binder the picture it loaded
+      // (`bindImages`); without one the fallback asset is drawn, and
+      // without that a neutral block.
+      final placeholder = '${prefix}ph_${_name(image)}';
+      drawables[placeholder] = '''
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="${color(image, 'placeholder', const LayoutColor(0xFFE0E3E7, 0xFF2B3238))}" />
+    <corners android:radius="${_dp(sized ? image.radius : 0)}" />
+</shape>
+''';
+      _imageKeys.add(key);
+      _bindImages.add(
+        'FFLayoutViews.valueImage(ctx, views, R.id.${id(image)}, '
+        'images[${kotlinString(key)}], '
+        '${image.assetPath.isEmpty ? 'null' : kotlinString('flutter_assets/${image.assetPath}')}, '
+        'R.drawable.$placeholder, '
+        '${sized ? '${_num(width)}f, ${_num(height)}f' : '0f, 0f'}, "$fit", '
+        '${sized ? _num(image.radius) : 0}f)',
+      );
+    } else if (sized) {
       // A fixed size: the bitmap is drawn at that size, fitted and rounded
       // as Flutter draws it.
       _bind.add(
@@ -799,16 +883,20 @@ class _RemoteViewsEmitter {
         '${kotlinString('flutter_assets/${image.assetPath}')}, '
         '${_num(width)}f, ${_num(height)}f, "$fit", ${_num(image.radius)}f)',
       );
+    }
+    if (sized) {
       return '$indent<ImageView$common'
           '\n${attr}android:scaleType="fitXY" />';
     }
     // Filling, or stretched by its parent: the view fits the picture
     // itself. A rounded one is clipped to its outline, a transparent rounded
     // shape, since the bitmap can't be drawn at a size not known here.
-    _bind.add(
-      'FFLayoutViews.image(ctx, views, R.id.${id(image)}, '
-      '${kotlinString('flutter_assets/${image.assetPath}')}, 0f, 0f, "$fit", 0f)',
-    );
+    if (image.paramKey == null) {
+      _bind.add(
+        'FFLayoutViews.image(ctx, views, R.id.${id(image)}, '
+        '${kotlinString('flutter_assets/${image.assetPath}')}, 0f, 0f, "$fit", 0f)',
+      );
+    }
     final scale = switch (image.fit) {
       LayoutFit.cover => 'centerCrop',
       LayoutFit.fill => 'fitXY',
@@ -816,9 +904,8 @@ class _RemoteViewsEmitter {
     };
     var rounded = '';
     if (image.radius > 0) {
-      final drawable = 'hw_clip_${id(image).substring(3)}';
-      drawables[drawable] =
-          '''
+      final drawable = '${prefix}clip_${_name(image)}';
+      drawables[drawable] = '''
 <?xml version="1.0" encoding="utf-8"?>
 <shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
     <solid android:color="#00000000" />
@@ -840,10 +927,11 @@ class _RemoteViewsEmitter {
     );
     // src_in: the white glyph takes the colour, its alpha included (the
     // default src_atop would lay a see-through colour over white).
-    final tint = icon.color.color != null
-        ? '\n${attr}android:tint="${color(icon, 'icon', icon.color.color!)}"'
-              '\n${attr}android:tintMode="src_in"'
-        : '\n${attr}android:tintMode="src_in"';
+    final tint =
+        icon.color.color != null
+            ? '\n${attr}android:tint="${color(icon, 'icon', icon.color.color!)}"'
+                '\n${attr}android:tintMode="src_in"'
+            : '\n${attr}android:tintMode="src_in"';
     if (icon.color.paramKey case final key?) {
       _bind.add(
         'FFLayoutViews.tint(views, R.id.${id(icon)}, v.color(${kotlinString(key)}))',
@@ -881,9 +969,19 @@ class _RemoteViewsEmitter {
     int depth,
   ) {
     final indent = _pad(depth);
-    final value = progress.value.paramKey != null
-        ? 'v.double(${kotlinString(progress.value.paramKey!)})'
-        : '${progress.value.value}';
+    if (progress.stages case final stages?) {
+      return _stages(progress, stages, common, attr, depth);
+    }
+    // Timed progress: how far now is between the two dates, worked out each
+    // time the card is posted. RemoteViews has no bar that fills by itself.
+    final value =
+        progress.isTimed
+            ? 'FFLayoutViews.timedFraction('
+                'v.date(${kotlinString(progress.timedStart!)}), '
+                'v.date(${kotlinString(progress.timedEnd!)}))'
+            : progress.value.paramKey != null
+            ? 'v.double(${kotlinString(progress.value.paramKey!)})'
+            : '${progress.value.value}';
     if (!progress.circular) {
       _bind.add(
         'views.setProgressBar(R.id.${id(progress)}, 1000, '
@@ -891,10 +989,9 @@ class _RemoteViewsEmitter {
       );
       // The track and the bar as one layer list. The bar is scaled, not
       // clipped, so its end keeps its rounded corners as Flutter draws it.
-      final drawable = 'hw_bar_${id(progress).substring(3)}';
+      final drawable = '${prefix}bar_${_name(progress)}';
       final corners = '<corners android:radius="${_dp(progress.barRadius)}" />';
-      drawables[drawable] =
-          '''
+      drawables[drawable] = '''
 <?xml version="1.0" encoding="utf-8"?>
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item android:id="@android:id/background">
@@ -936,14 +1033,214 @@ class _RemoteViewsEmitter {
         '\n$indent</FrameLayout>';
   }
 
+  /// A Stages bar as views, not a drawn bitmap: small in the notification,
+  /// crisp text, readable by TalkBack. A column of two rows: the stages
+  /// (each a frame holding its piece of the bar and its tracker), then the
+  /// labels. `FFLayoutViews.stages` (kotlin_runtime.dart) sets what depends
+  /// on the current stage. RemoteViews cannot move a view, so the tracker
+  /// is one view per place: the middle of each stage, or its start, middle
+  /// and end when a value says how far along the stage it is.
+  String _stages(
+    LayoutProgress progress,
+    LayoutStages stages,
+    String common,
+    String attr,
+    int depth,
+  ) {
+    final indent = _pad(depth);
+    final row = _pad(depth + 1);
+    final cell = _pad(depth + 2);
+    final leaf = _pad(depth + 3);
+    final base = id(progress);
+    final name = _name(progress);
+    final count = stages.stages.length;
+    final tracker = stages.trackerCodePoint;
+    final done = color(progress, 'bar', progress.color);
+    final upcoming = color(progress, 'upcoming', stages.upcomingColor);
+    String shape(String fill) => '''
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="$fill" />
+    <corners android:radius="${_dp(progress.barRadius)}" />
+</shape>
+''';
+    drawables['${prefix}stage_${name}_done'] = shape(done);
+    drawables['${prefix}stage_${name}_upcoming'] = shape(upcoming);
+    final places =
+        tracker == null
+            ? const <(String, String)>[]
+            : stages.progressParamKey == null
+            ? const [('', 'center')]
+            : const [
+              ('a', 'start|center_vertical'),
+              ('b', 'center'),
+              ('c', 'end|center_vertical'),
+            ];
+    var trackerTint = '';
+    if (tracker != null) {
+      drawables['${prefix}stage_${name}_disc'] = '''
+<?xml version="1.0" encoding="utf-8"?>
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="$done" />
+</shape>
+''';
+      trackerTint = color(
+        progress,
+        'tracker',
+        LayoutColor(
+          _onColor(progress.color.light),
+          _onColor(progress.color.dark),
+        ),
+      );
+    }
+    final rowHeight =
+        tracker == null
+            ? progress.size
+            : (progress.size > LayoutStages.trackerSize
+                ? progress.size
+                : LayoutStages.trackerSize);
+    String gapBefore(int index) =>
+        index == 0
+            ? ''
+            : ' android:layout_marginStart="${_dp(LayoutStages.gap)}"';
+    final segments = <String>[];
+    final trackers = <String>[];
+    final labels = <String>[];
+    final icons = <String>[];
+    final buffer = StringBuffer(
+      '$indent<LinearLayout$common'
+      '\n${attr}android:orientation="vertical">\n'
+      '$row<LinearLayout android:layout_width="match_parent" '
+      'android:layout_height="wrap_content" '
+      'android:orientation="horizontal">\n',
+    );
+    for (var i = 0; i < count; i++) {
+      segments.add('${base}_seg$i');
+      buffer.write(
+        '$cell<FrameLayout android:layout_width="0dp" '
+        'android:layout_height="${_dp(rowHeight)}" '
+        'android:layout_weight="1"${gapBefore(i)}>\n'
+        '$leaf<FrameLayout android:id="@+id/${base}_seg$i" '
+        'android:layout_width="match_parent" '
+        'android:layout_height="${_dp(progress.size)}" '
+        'android:layout_gravity="center_vertical" '
+        'android:background="@drawable/${prefix}stage_${name}_upcoming" />\n',
+      );
+      for (final (suffix, gravity) in places) {
+        trackers.add('${base}_trk$i$suffix');
+        buffer.write(
+          '$leaf<ImageView android:id="@+id/${base}_trk$i$suffix" '
+          'android:layout_width="${_dp(LayoutStages.trackerSize)}" '
+          'android:layout_height="${_dp(LayoutStages.trackerSize)}" '
+          'android:layout_gravity="$gravity" '
+          'android:background="@drawable/${prefix}stage_${name}_disc" '
+          'android:tint="$trackerTint" android:tintMode="src_in" '
+          'android:scaleType="center" android:visibility="gone" />\n',
+        );
+      }
+      buffer.write('$cell</FrameLayout>\n');
+    }
+    buffer.write('$row</LinearLayout>');
+    final texts = <String>[];
+    if (stages.showLabels) {
+      final labelColor = color(progress, 'label', stages.labelColor);
+      color(progress, 'label_upcoming', stages.upcomingLabelColor);
+      buffer.write(
+        '\n$row<LinearLayout android:layout_width="match_parent" '
+        'android:layout_height="wrap_content" '
+        'android:layout_marginTop="${_dp(LayoutStages.gap)}" '
+        'android:orientation="horizontal">\n',
+      );
+      for (final (i, stage) in stages.stages.indexed) {
+        labels.add('${base}_lbl$i');
+        icons.add('${base}_ico$i');
+        final (preview, text) = switch (stage.label) {
+          LayoutStaticText(:final text) => (text, kotlinString(text)),
+          LayoutParamText(:final paramKey) => (
+            defaults[paramKey] ?? '',
+            'v.text(${kotlinString(paramKey)})',
+          ),
+        };
+        texts.add(text);
+        buffer.write(
+          '$cell<LinearLayout android:layout_width="0dp" '
+          'android:layout_height="wrap_content" android:layout_weight="1" '
+          'android:orientation="horizontal" '
+          'android:gravity="start|center_vertical"${gapBefore(i)}>\n'
+          '$leaf<ImageView android:id="@+id/${base}_ico$i" '
+          'android:layout_width="${_dp(stages.labelSize)}" '
+          'android:layout_height="${_dp(stages.labelSize)}" '
+          'android:layout_marginEnd="3dp" android:tintMode="src_in" '
+          'android:scaleType="center" android:visibility="gone" />\n'
+          '$leaf<TextView android:id="@+id/${base}_lbl$i" '
+          'android:layout_width="wrap_content" '
+          'android:layout_height="wrap_content" '
+          'android:textSize="${_num(stages.labelSize)}dp" '
+          'android:includeFontPadding="false" android:maxLines="1" '
+          'android:ellipsize="end" android:textColor="$labelColor"'
+          '${preview.isEmpty ? '' : ' android:text="${_xmlAttr(preview)}"'} />\n'
+          '$cell</LinearLayout>\n',
+        );
+      }
+      buffer.write('$row</LinearLayout>');
+    }
+    buffer.write('\n$indent</LinearLayout>');
+    String ids(List<String> names) =>
+        'intArrayOf(${names.map((n) => 'R.id.$n').join(', ')})';
+    String hex(int? codePoint) =>
+        codePoint == null ? '0' : '0x${codePoint.toRadixString(16)}';
+    final inside =
+        stages.progressParamKey == null
+            ? 'null'
+            : 'v.double(${kotlinString(stages.progressParamKey!)})';
+    final args = [
+      'v.double(${kotlinString(stages.currentParamKey)})',
+      inside,
+      ids(segments),
+      'R.drawable.${prefix}stage_${name}_done',
+      'R.drawable.${prefix}stage_${name}_upcoming',
+      ids(trackers),
+      hex(tracker),
+      ids(labels),
+      ids(icons),
+      'intArrayOf(${stages.showLabels ? stages.stages.map((s) => hex(s.iconCodePoint)).join(', ') : ''})',
+      'arrayOf<String>(${texts.join(', ')})',
+      '${_num(stages.labelSize)}f',
+      'R.color.${base}_bar',
+      stages.showLabels ? 'R.color.${base}_label' : '0',
+      stages.showLabels ? 'R.color.${base}_label_upcoming' : '0',
+    ];
+    _bind.add('FFLayoutViews.stages(ctx, views, ${args.join(', ')})');
+    return buffer.toString();
+  }
+
+  /// A layout that shows Image values also implements
+  /// `FFLayoutImageBinder`: the host calls `bind`, then `bindImages` with
+  /// the pictures it has loaded (see kotlin_runtime.dart).
   String binder(String name, String layoutName) =>
-      '''
+      _imageKeys.isEmpty
+          ? '''
 
 internal object $name : FFLayoutBinder {
     override val layout: Int = R.layout.$layoutName
 
     override fun bind(ctx: Context, views: RemoteViews, v: FFValues) {
 ${_bind.map((line) => '        $line').join('\n')}
+    }
+}'''
+          : '''
+
+internal object $name : FFLayoutBinder, FFLayoutImageBinder {
+    override val layout: Int = R.layout.$layoutName
+
+    override fun bind(ctx: Context, views: RemoteViews, v: FFValues) {
+${_bind.map((line) => '        $line').join('\n')}
+    }
+
+    override val imageKeys: List<String> = listOf(${_imageKeys.map(kotlinString).join(', ')})
+
+    override fun bindImages(ctx: Context, views: RemoteViews, images: Map<String, Bitmap>) {
+${_bindImages.map((line) => '        $line').join('\n')}
     }
 }''';
 }

@@ -10,6 +10,10 @@ publish_to: none
 environment:
   sdk: ">=3.8.0 <4.0.0"
 
+dependencies:
+  flutterflow_native_layout:
+    path: packages/flutterflow_native_layout
+
 dev_dependencies:
   lints: ^6.0.0
   test: ^1.25.0
