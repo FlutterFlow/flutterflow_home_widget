@@ -1,0 +1,92 @@
+{
+  "specVersion": 1,
+  "iosBundleId": "io.flutterflow.example.courier",
+  "iosDeviceFamily": "1",
+  "routes": { "scheme": "courier", "host": "courier.example.com" },
+  "activities": [
+    {
+      "key": "delivery",
+      "name": "Delivery",
+      "description": "Follows an order from the shop to the door.",
+      "template": "custom",
+      "accentColor": "#FF2F80ED",
+      "icon": "assets/images/app_icon.png",
+      "androidChannelName": "Deliveries",
+      "values": [
+        { "key": "title", "name": "Title", "type": "string", "default": "Your order" },
+        { "key": "status", "name": "Status", "type": "string", "default": "Preparing" },
+        { "key": "stage", "name": "Stage", "type": "integer", "default": "0" },
+        { "key": "within", "name": "Progress in stage", "type": "double", "default": "0.0" },
+        { "key": "eta", "name": "Arrives", "type": "dateTime", "required": true },
+        { "key": "sent", "name": "Sent", "type": "dateTime" },
+        { "key": "courier", "name": "Courier photo", "type": "image", "default": "assets/images/courier.png" },
+        { "key": "tint", "name": "Brand color", "type": "color", "default": "#FF2F80ED" }
+      ],
+      "surfaces": {
+        "lockScreen": {
+          "root": {
+            "type": "box", "key": "card", "width": "fill",
+            "background": { "light": "#FFFFFFFF", "dark": "#FF101418" },
+            "child": {
+              "type": "column", "key": "content", "padding": [16, 14, 16, 14],
+              "crossAxis": "start", "spacing": 8,
+              "children": [
+                { "type": "row", "key": "top", "spacing": 10,
+                  "children": [
+                    { "type": "image", "key": "photo", "value": "courier", "asset": "assets/images/courier.png",
+                      "width": 36, "height": 36, "fit": "cover", "radius": 18 },
+                    { "type": "column", "key": "heading", "flex": 1, "crossAxis": "start",
+                      "children": [
+                        { "type": "text", "key": "titleText", "value": "title", "fontSize": 16, "fontWeight": 600,
+                          "color": { "light": "#FF14181B", "dark": "#FFFFFFFF" } },
+                        { "type": "text", "key": "statusText", "value": "status", "fontSize": 12, "maxLines": 1,
+                          "color": { "light": "#FF57636C", "dark": "#FF95A1AC" } }
+                      ] },
+                    { "type": "text", "key": "left", "value": "eta", "fontSize": 20, "fontWeight": 700,
+                      "textAlign": "end", "color": { "value": "tint" } }
+                  ] },
+                { "type": "progress", "key": "stages", "value": 0, "size": 6, "barRadius": 3,
+                  "color": "#FF2F80ED",
+                  "stages": {
+                    "current": "stage", "progress": "within", "trackerIcon": "0xe558",
+                    "upcomingColor": { "light": "#FFE0E3E7", "dark": "#FF2B3238" },
+                    "items": [
+                      { "key": "packed", "label": "Packed" },
+                      { "key": "onway", "label": "On the way", "icon": "0xe558" },
+                      { "key": "here", "label": "Arrived" }
+                    ] } },
+                { "type": "text", "key": "since", "value": "sent", "countUp": true, "fontSize": 11,
+                  "color": { "light": "#FF57636C", "dark": "#FF95A1AC" } }
+              ]
+            }
+          }
+        },
+        "islandExpanded": {
+          "tap": { "openPage": "/orders" },
+          "root": { "type": "row", "key": "ex", "padding": [8, 4, 8, 4], "spacing": 8,
+            "children": [
+              { "type": "text", "key": "exTitle", "value": "title", "color": "#FFFFFFFF", "flex": 1 },
+              { "type": "text", "key": "exEta", "value": "eta", "color": "#FF2F80ED", "fontWeight": 700 }
+            ] }
+        },
+        "islandCompactLeading": {
+          "root": { "type": "icon", "key": "leading", "codePoint": "0xe558", "size": 18, "color": "#FF2F80ED" }
+        },
+        "islandCompactTrailing": {
+          "root": { "type": "text", "key": "trailing", "value": "eta", "fontSize": 12, "color": "#FFFFFFFF" }
+        },
+        "islandMinimal": {
+          "root": { "type": "icon", "key": "minimal", "codePoint": "0xe558", "size": 16, "color": "#FFFFFFFF" }
+        }
+      },
+      "android": { "presentation": "custom" }
+    },
+    {
+      "key": "upload",
+      "name": "Upload",
+      "template": "progress",
+      "accentColor": "#FF34C759",
+      "androidChannelName": "Uploads"
+    }
+  ]
+}
