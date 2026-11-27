@@ -14,6 +14,7 @@ library;
 import 'package:flutterflow_home_widget/src/refresh.dart';
 import 'package:flutterflow_home_widget/src/spec.dart';
 import 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
+import 'package:flutterflow_native_layout/layout_json.dart';
 
 /// Thrown when JSON does not describe a valid spec. [path] says where.
 class HomeWidgetJsonException implements Exception {
