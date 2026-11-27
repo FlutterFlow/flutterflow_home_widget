@@ -39,17 +39,33 @@ const kLiveActivityRunnerEntitlementsPath = 'Runner/Runner.entitlements';
 ///
 /// A project that already has the target is returned as it is, unless the
 /// target was added for a spec with other files (a Custom card or an Image
-/// value added or removed since): that throws, as the target has to be
-/// taken out by hand first.
-String addLiveActivityTarget(String pbxproj, LiveActivityApp app) {
+/// value added or removed since). A file the spec no longer needs is taken
+/// out of the target when it is in [removedFiles] (paths relative to the
+/// app, as `ios/LiveActivity/LiveActivityCards.swift`: the files `apply`
+/// deletes), and left in it when it is in [keptFiles] (the ones it keeps
+/// because they were changed since they were generated). Any other
+/// difference throws, as the target has to be taken out by hand first.
+String addLiveActivityTarget(
+  String pbxproj,
+  LiveActivityApp app, {
+  Set<String> removedFiles = const {},
+  Set<String> keptFiles = const {},
+}) {
   const target = kLiveActivityIosExtensionTarget;
+  var text = pbxproj;
   if (pbxproj.contains('/* $target */ = {')) {
     for (final (file, needed) in [
       (kLiveActivityIosCardsSwiftFile, app.hasCustomCards),
       (kLiveActivityIosEntitlementsFile, app.hasImageValues),
     ]) {
-      if (pbxproj.contains('/* $file */ = {isa = PBXFileReference;') !=
-          needed) {
+      final has = pbxproj.contains('/* $file */ = {isa = PBXFileReference;');
+      if (has == needed) {
+        continue;
+      }
+      final path = 'ios/$target/$file';
+      if (has && removedFiles.contains(path)) {
+        text = removeLiveActivityIosFile(text, file);
+      } else if (!(has && keptFiles.contains(path))) {
         throw LiveActivityProjectException(
           'project.pbxproj has a $target target ${needed ? 'without' : 'with'} '
           '$file, which this spec ${needed ? 'needs' : 'does not have'}. '
@@ -57,14 +73,13 @@ String addLiveActivityTarget(String pbxproj, LiveActivityApp app) {
         );
       }
     }
-    return pbxproj;
+    return text;
   }
   final fragments = liveActivityPbxprojFragments(app);
   fragments[16] = _withDevelopmentTeams(
     fragments[16],
     _runnerDevelopmentTeams(pbxproj),
   );
-  var text = pbxproj;
 
   String insertAfter(String text, String anchor, String fragment, int slot) {
     final at = text.indexOf(anchor);

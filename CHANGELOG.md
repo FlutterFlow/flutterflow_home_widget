@@ -1,3 +1,17 @@
+## Unreleased
+
+- `flutterflow_live_activity apply` removes the files it generated for
+  activities that are no longer in the spec. It records every file it writes,
+  with a SHA-256, in `.flutterflow_live_activity_manifest.json` in the app,
+  and on the next run deletes a recorded file the spec no longer generates
+  only if its content is unchanged; a changed file is left in place with a
+  warning. It also takes the deleted Swift and entitlements files out of the
+  Xcode target and deletes folders left empty. Apps applied with 0.3.0 have
+  no manifest, so nothing is deleted until the next `apply` has written one.
+  `applyLiveActivities` takes an `onRemoved` callback and
+  `addLiveActivityTarget` takes `removedFiles` and `keptFiles`.
+  `flutterflow_live_activity` depends on `crypto`.
+
 ## 0.3.0
 
 - A new package in this repository, `flutterflow_live_activity`

@@ -42,10 +42,42 @@ and `Runner.entitlements`. Android needs nothing more: the plugin's
 manifest is merged into the app's.
 
 Running `apply` again only rewrites what changed. It works everything out
-before writing, so a project it cannot change (no `pubspec.yaml`, an Xcode
-project that is not a `flutter create` one, or a `LiveActivity` target added
-for a spec that has since gained or lost its Custom cards or Image values)
+before writing or deleting, so a project it cannot change (no `pubspec.yaml`,
+an Xcode project that is not a `flutter create` one, or a `LiveActivity`
+target added for a spec that has since gained Custom cards or Image values)
 is left as it was; remove the old target in Xcode first in the last case.
+
+### Taking an activity out of the spec
+
+`apply` records every file it generates, with the SHA-256 of what it wrote,
+in `.flutterflow_live_activity_manifest.json` in the app's root. Keep it
+with the app's sources. When a later `apply` finds a recorded file the spec
+no longer generates (the files of a Custom card you removed, or all the
+Custom cards' shared files, `LiveActivityCards.swift` and
+`FFLiveActivityCustom.kt`, when the last one goes):
+
+- the file is deleted only if its content is still what `apply` wrote. A
+  file you changed stays, `apply` prints `Warning: <path> changed since it
+  was generated; left in place.`, and says so again on every run until you
+  delete it. A Swift file that stays also stays in the Xcode target.
+- the Xcode entries that compile a deleted file (`LiveActivityCards.swift`,
+  `LiveActivity.entitlements`: file reference, group entry, build file,
+  sources phase, the extension's `CODE_SIGN_ENTITLEMENTS`) are taken out of
+  `project.pbxproj`; nothing else in it changes. Folders left empty are
+  deleted; a folder with anything in it is not.
+- only files in `ios/LiveActivity/` and `packages/ff_live_activity/` are
+  ever deleted, and files `apply` edits (`pubspec.yaml`, `project.pbxproj`,
+  `Info.plist`, `Runner.entitlements`) never are.
+- an app applied before the manifest existed has no manifest: nothing is
+  deleted, and the manifest is written. A manifest that cannot be read also
+  deletes nothing. (Such an app whose Xcode target still has a file the spec
+  no longer needs is refused, as before: remove the target in Xcode.)
+
+What `apply` leaves behind, because it cannot tell its own entries from
+yours: `NSSupportsLiveActivities` and the keychain-group entry in
+`Info.plist`, the keychain groups in `Runner.entitlements`, and
+`CODE_SIGN_ENTITLEMENTS` in the Runner's build settings. Remove them by
+hand if no card has an Image value any more.
 `iosBundleId` is the app's bundle id (the extension is
 `<iosBundleId>.LiveActivity`): `apply` reads the Runner's
 `PRODUCT_BUNDLE_IDENTIFIER` in every build configuration and refuses when
@@ -101,8 +133,8 @@ final files = {
 final back = liveActivityAppToJson(app); // generates the same files
 ```
 
-`package:flutterflow_live_activity/io.dart` has `applyLiveActivities`, what
-the `apply` command runs, and the functions it changes `project.pbxproj`,
+`package:flutterflow_live_activity/io.dart` has `applyLiveActivities` (with
+`onWarning` and `onRemoved` callbacks), what the `apply` command runs, and the functions it changes `project.pbxproj`,
 `Info.plist` and `Runner.entitlements` with. The main library does not use
 `dart:io`.
 
