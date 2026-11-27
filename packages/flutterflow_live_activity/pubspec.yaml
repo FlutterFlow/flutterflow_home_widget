@@ -1,0 +1,19 @@
+name: flutterflow_live_activity
+description: >-
+  Generates iOS Live Activities (ActivityKit) and Android Live Updates for a
+  Flutter app from one spec: the native card code, the Flutter plugin the app
+  starts, updates and ends them with, and the Xcode project changes.
+version: 0.2.0
+repository: https://github.com/FlutterFlow/flutterflow_home_widget
+publish_to: none
+
+environment:
+  sdk: ">=3.7.0 <4.0.0"
+
+dependencies:
+  flutterflow_native_layout:
+    path: ../flutterflow_native_layout
+
+dev_dependencies:
+  lints: ^6.0.0
+  test: ^1.25.0

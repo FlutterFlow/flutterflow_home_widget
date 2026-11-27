@@ -1,5 +1,9 @@
 ## Unreleased
 
+- A new package in this repository, `flutterflow_live_activity`
+  (`packages/flutterflow_live_activity/`), generates iOS Live Activities and
+  Android Live Updates from a typed spec, drawing Custom cards with
+  `flutterflow_native_layout`. It is versioned with this package.
 - The layout model, the SwiftUI and RemoteViews emitters, escaping and the
   shared Swift and Kotlin run time move into a new package,
   `flutterflow_native_layout` (`packages/flutterflow_native_layout/`), which
