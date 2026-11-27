@@ -1,4 +1,4 @@
-## Unreleased
+## 0.3.0
 
 - A new package in this repository, `flutterflow_live_activity`
   (`packages/flutterflow_live_activity/`), generates iOS Live Activities and

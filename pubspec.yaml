@@ -3,7 +3,7 @@ description: >-
   Generates iOS (WidgetKit) and Android (app widget) home screen widgets for a
   Flutter app from one spec: the native widget code, the Flutter plugin the
   app updates them with, and the Xcode project changes.
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/FlutterFlow/flutterflow_home_widget
 publish_to: none
 

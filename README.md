@@ -130,15 +130,30 @@ final files = generateHomeWidgetFiles(app); // path -> content
 
 ## Versions
 
-Tags are releases (`v0.2.0`). Depend on a tag:
+Tags are releases (`v0.3.0`). Depend on a tag:
 
 ```yaml
 dependencies:
   flutterflow_home_widget:
     git:
       url: https://github.com/FlutterFlow/flutterflow_home_widget.git
-      ref: v0.2.0
+      ref: v0.3.0
 ```
+
+The Live Activity package ships in the same tag:
+
+```yaml
+dependencies:
+  flutterflow_live_activity:
+    git:
+      url: https://github.com/FlutterFlow/flutterflow_home_widget.git
+      path: packages/flutterflow_live_activity
+      ref: v0.3.0
+```
+
+Use the same tag for both packages. Use `flutterflow_native_layout` through
+them, since each re-exports the parts it needs, rather than depending on it
+directly.
 
 The generated native code and the Dart plugin it talks to are one unit, so
 an app is regenerated whole when it moves to a new version.

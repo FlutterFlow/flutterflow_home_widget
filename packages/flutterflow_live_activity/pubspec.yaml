@@ -3,7 +3,7 @@ description: >-
   Generates iOS Live Activities (ActivityKit) and Android Live Updates for a
   Flutter app from one spec: the native card code, the Flutter plugin the app
   starts, updates and ends them with, and the Xcode project changes.
-version: 0.2.0
+version: 0.3.0
 repository: https://github.com/FlutterFlow/flutterflow_home_widget
 publish_to: none
 
