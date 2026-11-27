@@ -1,3 +1,9 @@
+## Unreleased
+
+- `homeWidgetAppFromJson` reads the spec with the shared JSON reader of
+  `flutterflow_native_layout`, as the Live Activity package does. Errors,
+  their paths and the generated files are unchanged.
+
 ## 0.3.0
 
 - A new package in this repository, `flutterflow_live_activity`

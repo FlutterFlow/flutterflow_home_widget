@@ -28,8 +28,13 @@ class HomeWidgetJsonException implements Exception {
 }
 
 /// The app [json] describes.
-HomeWidgetApp homeWidgetAppFromJson(Map<String, Object?> json) =>
-    _Reader(json, r'$').app();
+HomeWidgetApp homeWidgetAppFromJson(Map<String, Object?> json) {
+  try {
+    return _app(SpecJsonReader(json, r'$'));
+  } on NativeLayoutJsonException catch (e) {
+    throw HomeWidgetJsonException(e.path, e.message);
+  }
+}
 
 /// [app] as JSON. `homeWidgetAppFromJson(homeWidgetAppToJson(app))`
 /// generates the same files as [app].
@@ -99,188 +104,108 @@ String _jsonPathString(List<JsonStep> path) => [
 ].join();
 
 // --- Reading ----------------------------------------------------------------
+//
+// Errors are thrown as the shared reader's `NativeLayoutJsonException`;
+// `homeWidgetAppFromJson` rethrows them as a `HomeWidgetJsonException`.
 
-class _Reader {
-  _Reader(this.json, this.path);
+HomeWidgetApp _app(SpecJsonReader json) => HomeWidgetApp(
+  iosBundleId: json.req<String>('iosBundleId'),
+  iosDeviceFamily: json.opt<String>('iosDeviceFamily') ?? '1',
+  routes: switch (json.optChild('routes')) {
+    final routes? => HomeWidgetRoutes(
+      scheme: routes.opt<String>('scheme') ?? '',
+      host: routes.opt<String>('host') ?? '',
+      encodeTwice: routes.opt<bool>('encodeTwice') ?? true,
+    ),
+    null => const HomeWidgetRoutes(scheme: ''),
+  },
+  widgets: [for (final widget in json.children('widgets')) _widget(widget)],
+);
 
-  final Map<String, Object?> json;
-  final String path;
-
-  Never fail(String message, [String? key]) =>
-      throw HomeWidgetJsonException(key == null ? path : '$path.$key', message);
-
-  T? opt<T>(String key) {
-    final value = json[key];
-    if (value == null) {
-      return null;
-    }
-    if (T == double && value is num) {
-      return value.toDouble() as T;
-    }
-    if (value is! T) {
-      fail('expected ${_typeName<T>()}, got ${value.runtimeType}', key);
-    }
-    return value as T;
-  }
-
-  T req<T>(String key) => opt<T>(key) ?? fail('missing ${_typeName<T>()}', key);
-
-  _Reader child(String key) =>
-      _Reader(req<Map<String, Object?>>(key), '$path.$key');
-
-  _Reader? optChild(String key) => json[key] == null ? null : child(key);
-
-  List<_Reader> children(String key) {
-    final list = opt<List<Object?>>(key) ?? const [];
-    return [
-      for (var i = 0; i < list.length; i++)
-        if (list[i] case final Map<String, Object?> item)
-          _Reader(item, '$path.$key[$i]')
-        else
-          fail('expected an object', '$key[$i]'),
-    ];
-  }
-
-  E enumValue<E extends Enum>(String key, List<E> values, E fallback) {
-    final name = opt<String>(key);
-    if (name == null) {
-      return fallback;
-    }
-    for (final value in values) {
-      if (value.name == name) {
-        return value;
-      }
-    }
-    fail('expected one of ${values.map((v) => v.name).join(', ')}', key);
-  }
-
-  HomeWidgetApp app() => HomeWidgetApp(
-    iosBundleId: req<String>('iosBundleId'),
-    iosDeviceFamily: opt<String>('iosDeviceFamily') ?? '1',
-    routes: switch (optChild('routes')) {
-      final routes? => HomeWidgetRoutes(
-        scheme: routes.opt<String>('scheme') ?? '',
-        host: routes.opt<String>('host') ?? '',
-        encodeTwice: routes.opt<bool>('encodeTwice') ?? true,
+HomeWidgetDefinition _widget(SpecJsonReader json) {
+  final values = [
+    for (final value in json.children('values'))
+      HomeWidgetValue(
+        key: value.req<String>('key'),
+        name: value.opt<String>('name') ?? value.req<String>('key'),
+        type: _valueType(value, 'type'),
+        defaultValue: value.opt<String>('default'),
       ),
-      null => const HomeWidgetRoutes(scheme: ''),
-    },
-    widgets: [for (final widget in children('widgets')) widget.widget()],
-  );
-
-  HomeWidgetDefinition widget() {
-    final values = [
-      for (final value in children('values'))
-        HomeWidgetValue(
-          key: value.req<String>('key'),
-          name: value.opt<String>('name') ?? value.req<String>('key'),
-          type: value.valueType('type'),
-          defaultValue: value.opt<String>('default'),
-        ),
-    ];
-    final types = {for (final value in values) value.key: value.type};
-    final layoutsJson = child('layouts');
-    final layouts = <HomeWidgetSize, HomeWidgetLayoutModel>{};
-    for (final size in HomeWidgetSize.values) {
-      if (layoutsJson.optChild(size.name) case final layout?) {
-        layouts[size] = layout.layout(types);
-      }
-    }
-    for (final key in layoutsJson.json.keys) {
-      if (!HomeWidgetSize.values.any((size) => size.name == key)) {
-        layoutsJson.fail(
-          'unknown size; expected one of '
-          '${HomeWidgetSize.values.map((s) => s.name).join(', ')}',
-          key,
-        );
-      }
-    }
-    return HomeWidgetDefinition(
-      key: req<String>('key'),
-      name: opt<String>('name') ?? '',
-      description: opt<String>('description') ?? '',
-      placeholderText: opt<String>('placeholderText') ?? '',
-      values: values,
-      layouts: layouts,
-      refresh: optChild('refresh')?.refresh(),
-      configuration: optChild('configuration')?.configuration(),
-    );
-  }
-
-  HomeWidgetValueType valueType(String key) {
-    final id = req<String>(key);
-    for (final type in HomeWidgetValueType.values) {
-      if (type.id == id) {
-        return type;
-      }
-    }
-    fail(
-      'expected one of ${HomeWidgetValueType.values.map((t) => t.id).join(', ')}',
-      key,
-    );
-  }
-
-  HomeWidgetRefreshPlan refresh() => HomeWidgetRefreshPlan(
-    url: req<String>('url'),
-    headers: {
-      for (final MapEntry(:key, :value)
-          in (opt<Map<String, Object?>>('headers') ?? const {}).entries)
-        key: value is String
-            ? value
-            : fail('expected a string', 'headers.$key'),
-    },
-    intervalMinutes:
-        (opt<num>('intervalMinutes') ?? kHomeWidgetMinRefreshMinutes).toInt(),
-    values: [
-      for (final value in children('values'))
-        FetchedValue(
-          value.req<String>('key'),
-          value.valueType('type'),
-          parseJsonPath(value.req<String>('path')) ??
-              value.fail('a widget reads only plain paths: \$.a.b[0]', 'path'),
-        ),
-    ],
-  );
-
-  HomeWidgetConfiguration configuration() => HomeWidgetConfiguration(
-    title: opt<String>('title') ?? '',
-    appChoices: opt<bool>('appChoices') ?? false,
-    choices: [
-      for (final choice in children('choices'))
-        HomeWidgetChoice(
-          id: choice.req<String>('id'),
-          name: choice.opt<String>('name') ?? choice.req<String>('id'),
-          values: {
-            for (final MapEntry(:key, :value)
-                in (choice.opt<Map<String, Object?>>('values') ?? const {})
-                    .entries)
-              key: value is String
-                  ? value
-                  : choice.fail('expected a string', 'values.$key'),
-          },
-        ),
-    ],
-  );
-
-  HomeWidgetLayoutModel layout(Map<String, HomeWidgetValueType> types) {
-    try {
-      return nativeLayoutFromJson(
-        json,
+  ];
+  final types = {for (final value in values) value.key: value.type};
+  final layoutsJson = json.child('layouts');
+  final layouts = <HomeWidgetSize, HomeWidgetLayoutModel>{};
+  for (final size in HomeWidgetSize.values) {
+    if (layoutsJson.optChild(size.name) case final layout?) {
+      layouts[size] = nativeLayoutFromJson(
+        layout.json,
         types: types,
-        path: path,
+        path: layout.path,
         owner: 'widget',
       );
-    } on NativeLayoutJsonException catch (e) {
-      throw HomeWidgetJsonException(e.path, e.message);
     }
   }
+  for (final key in layoutsJson.json.keys) {
+    if (!HomeWidgetSize.values.any((size) => size.name == key)) {
+      layoutsJson.fail(
+        'unknown size; expected one of '
+        '${HomeWidgetSize.values.map((s) => s.name).join(', ')}',
+        key,
+      );
+    }
+  }
+  return HomeWidgetDefinition(
+    key: json.req<String>('key'),
+    name: json.opt<String>('name') ?? '',
+    description: json.opt<String>('description') ?? '',
+    placeholderText: json.opt<String>('placeholderText') ?? '',
+    values: values,
+    layouts: layouts,
+    refresh: json.optChild('refresh')?.let(_refresh),
+    configuration: json.optChild('configuration')?.let(_configuration),
+  );
 }
 
-String _typeName<T>() => switch (T) {
-  const (String) => 'a string',
-  const (bool) => 'true or false',
-  const (double) || const (num) => 'a number',
-  const (List<Object?>) => 'a list',
-  const (Map<String, Object?>) => 'an object',
-  _ => '$T',
-};
+HomeWidgetValueType _valueType(SpecJsonReader json, String key) {
+  final id = json.req<String>(key);
+  for (final type in HomeWidgetValueType.values) {
+    if (type.id == id) {
+      return type;
+    }
+  }
+  json.fail(
+    'expected one of ${HomeWidgetValueType.values.map((t) => t.id).join(', ')}',
+    key,
+  );
+}
+
+HomeWidgetRefreshPlan _refresh(SpecJsonReader json) => HomeWidgetRefreshPlan(
+  url: json.req<String>('url'),
+  headers: json.strings('headers'),
+  intervalMinutes:
+      (json.opt<num>('intervalMinutes') ?? kHomeWidgetMinRefreshMinutes)
+          .toInt(),
+  values: [
+    for (final value in json.children('values'))
+      FetchedValue(
+        value.req<String>('key'),
+        _valueType(value, 'type'),
+        parseJsonPath(value.req<String>('path')) ??
+            value.fail('a widget reads only plain paths: \$.a.b[0]', 'path'),
+      ),
+  ],
+);
+
+HomeWidgetConfiguration _configuration(SpecJsonReader json) =>
+    HomeWidgetConfiguration(
+      title: json.opt<String>('title') ?? '',
+      appChoices: json.opt<bool>('appChoices') ?? false,
+      choices: [
+        for (final choice in json.children('choices'))
+          HomeWidgetChoice(
+            id: choice.req<String>('id'),
+            name: choice.opt<String>('name') ?? choice.req<String>('id'),
+            values: choice.strings('values'),
+          ),
+      ],
+    );
