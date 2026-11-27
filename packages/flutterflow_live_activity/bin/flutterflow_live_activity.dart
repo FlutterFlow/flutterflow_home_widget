@@ -17,7 +17,9 @@ Usage: flutterflow_live_activity <command> <spec.json> [<dir>]
   generate <spec.json> <dir>    Write the generated files under <dir>.
   apply <spec.json> <app dir>   Add the Live Activities to a flutter create
                                 app: files, pubspec, Xcode target,
-                                Info.plist, entitlements.
+                                Info.plist, entitlements. Removes the
+                                files it wrote for activities no longer
+                                in the spec, unless you changed them.
 
 generate and apply refuse a spec with problems; warnings do not stop them.''';
 
@@ -72,12 +74,17 @@ void main(List<String> args) {
       stdout.writeln('Wrote ${files.length} files under ${args[2]}.');
     case 'apply':
       try {
+        final removed = <String>[];
         final written = applyLiveActivities(
           args[2],
           app,
           onWarning: (warning) => stderr.writeln('Warning: $warning'),
+          onRemoved: removed.add,
         );
-        stdout.writeln('Updated ${written.length} files in ${args[2]}.');
+        stdout.writeln(
+          'Updated ${written.length} files in ${args[2]}'
+          '${removed.isEmpty ? '' : ', removed ${removed.length}'}.',
+        );
       } on LiveActivityProjectException catch (e) {
         _fail(e.message);
       }

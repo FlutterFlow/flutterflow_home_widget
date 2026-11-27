@@ -11,6 +11,7 @@ environment:
   sdk: ">=3.7.0 <4.0.0"
 
 dependencies:
+  crypto: ^3.0.0
   flutterflow_native_layout:
     path: ../flutterflow_native_layout
 

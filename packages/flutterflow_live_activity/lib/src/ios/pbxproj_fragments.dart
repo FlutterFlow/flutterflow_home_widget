@@ -335,3 +335,31 @@ ${customCards ? '''
   assert(fragments.length == kLiveActivityPbxprojSlots.length);
   return fragments;
 }
+
+/// [pbxproj] without the entries that put [fileName] (one of
+/// [kLiveActivityIosCardsSwiftFile] or [kLiveActivityIosEntitlementsFile])
+/// into the Live Activity target: its file reference, its place in the
+/// extension's group and, for the Swift file, its build file and its entry
+/// in the sources phase; for the entitlements file, the target's
+/// `CODE_SIGN_ENTITLEMENTS` setting too. Only lines with the target's own
+/// object ids (or that setting) go; the project is otherwise as it was, and
+/// one without the entries is returned unchanged.
+String removeLiveActivityIosFile(String pbxproj, String fileName) {
+  final ids = switch (fileName) {
+    kLiveActivityIosCardsSwiftFile => [_refCardsSwift, _buildCardsSwift],
+    kLiveActivityIosEntitlementsFile => [_refEntitlements],
+    _ => throw ArgumentError.value(fileName, 'fileName'),
+  };
+  final signing =
+      fileName == kLiveActivityIosEntitlementsFile
+          ? 'CODE_SIGN_ENTITLEMENTS = '
+              '$kLiveActivityIosExtensionTarget/$kLiveActivityIosEntitlementsFile;'
+          : null;
+  final lines = pbxproj.split('\n');
+  return [
+    for (final line in lines)
+      if (!ids.any(line.contains) &&
+          (signing == null || line.trim() != signing))
+        line,
+  ].join('\n');
+}
