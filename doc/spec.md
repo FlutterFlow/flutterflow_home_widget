@@ -91,6 +91,12 @@ page there.
   `thickness` (circular), `width` (linear; default `fill`), `barRadius`
   (linear), `startAngle` (circular, degrees clockwise from the top).
 
+This layout JSON is read by `flutterflow_native_layout`, which Live Activity
+cards share. What only a card draws (a `text`'s `countUp`, an `image`'s
+`value`, a `progress`'s `timed` and `stages`; see
+[the Live Activity README](../packages/flutterflow_live_activity/README.md#the-json-spec))
+is an error in a widget's layout.
+
 ### Taps
 
 - `{"openPage": "/path/:id", "params": [...]}`: opens the app at that route.

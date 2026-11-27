@@ -16,6 +16,23 @@ import 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
 /// meaning; a spec of another version is not read.
 const kLiveActivitySpecVersion = 1;
 
+// --- Limits -----------------------------------------------------------------
+// What a Custom card may hold: ActivityKit caps the size of an activity's
+// state, and a card is drawn in a few hundred points.
+
+/// The most values a card may have.
+const kLiveActivityMaxValues = 24;
+
+/// The most Image values a card may have.
+const kLiveActivityMaxImageValues = 4;
+
+/// The most nodes one layout may have.
+const kLiveActivityMaxLayoutNodes = 80;
+
+/// The fewest and the most stages of a Stages bar.
+const kLiveActivityMinStages = 2;
+const kLiveActivityMaxStages = 6;
+
 /// Where a Live Activity is drawn on iOS. Android draws only the Lock Screen
 /// layout.
 enum LiveActivitySurface {

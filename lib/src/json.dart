@@ -5,11 +5,16 @@
 /// …}` for a color with a dark-mode value. A paint (a fill or text color) is
 /// a color or `{"value": key}`, a Color value of the widget. Lengths are a
 /// number of points, `"fill"` or `"fit"` (the default).
+///
+/// Layouts are read and written by `flutterflow_native_layout`
+/// ([nativeLayoutFromJson], [nativeLayoutToJson]), which Live Activity cards
+/// share.
 library;
 
 import 'package:flutterflow_home_widget/src/refresh.dart';
 import 'package:flutterflow_home_widget/src/spec.dart';
 import 'package:flutterflow_native_layout/flutterflow_native_layout.dart';
+import 'package:flutterflow_native_layout/layout_json.dart';
 
 /// Thrown when JSON does not describe a valid spec. [path] says where.
 class HomeWidgetJsonException implements Exception {
@@ -56,7 +61,7 @@ Map<String, Object?> _widgetToJson(HomeWidgetDefinition widget) => {
   ],
   'layouts': {
     for (final (size, layout) in widget.sizedLayouts)
-      size.name: _layoutToJson(layout),
+      size.name: nativeLayoutToJson(layout),
   },
   if (widget.refresh case final refresh?)
     'refresh': {
@@ -92,182 +97,6 @@ String _jsonPathString(List<JsonStep> path) => [
       JsonIndex(:final index) => '[$index]',
     },
 ].join();
-
-Map<String, Object?> _layoutToJson(HomeWidgetLayoutModel layout) => {
-  if (layout.tap case final tap?) 'tap': _tapToJson(tap),
-  if (layout.root case final root?) 'root': _nodeToJson(root),
-};
-
-Object _colorToJson(LayoutColor color) => color.light == color.dark
-    ? _hex(color.light)
-    : {'light': _hex(color.light), 'dark': _hex(color.dark)};
-
-String _hex(int argb) =>
-    '#${(argb & 0xFFFFFFFF).toRadixString(16).padLeft(8, '0').toUpperCase()}';
-
-Object _paintToJson(LayoutPaint paint) => paint.paramKey != null
-    ? {'value': paint.paramKey}
-    : _colorToJson(paint.color!);
-
-Object _lengthToJson(LayoutLength length) =>
-    length.fill ? 'fill' : (length.points ?? 'fit');
-
-List<double> _alignmentToJson(LayoutAlignment a) => [a.x, a.y];
-
-Map<String, Object?> _tapToJson(LayoutTap tap) => switch (tap) {
-  LayoutOpenPage(:final path, :final params) => {
-    'openPage': path,
-    if (params.isNotEmpty)
-      'params': [
-        for (final param in params)
-          {
-            'name': param.name,
-            if (param.paramKey != null) 'value': param.paramKey,
-            if (param.constant != null) 'constant': param.constant,
-            if (param.paramKey != null &&
-                param.format != LayoutRouteFormat.text)
-              'format': param.format.name,
-          },
-      ],
-  },
-  LayoutToggle(:final paramKey) => {'toggle': paramKey},
-  LayoutStep(
-    :final paramKey,
-    :final step,
-    :final min,
-    :final max,
-    :final integer,
-  ) =>
-    {
-      'step': paramKey,
-      'by': step,
-      'min': ?min,
-      'max': ?max,
-      if (integer) 'integer': true,
-    },
-  LayoutClear() => {'clear': true},
-};
-
-Map<String, Object?> _nodeToJson(LayoutNode node) {
-  final json = <String, Object?>{
-    'type': switch (node) {
-      LayoutBox() => 'box',
-      LayoutFlex(:final horizontal) => horizontal ? 'row' : 'column',
-      LayoutStack() => 'stack',
-      LayoutTextNode() => 'text',
-      LayoutImage() => 'image',
-      LayoutIcon() => 'icon',
-      LayoutSpacer() => 'spacer',
-      LayoutDivider() => 'divider',
-      LayoutProgress() => 'progress',
-    },
-    'key': node.nodeKey,
-    if (!node.padding.isZero)
-      'padding': [
-        node.padding.left,
-        node.padding.top,
-        node.padding.right,
-        node.padding.bottom,
-      ],
-    'flex': ?node.flex,
-    'visibleIf': ?node.visibleParam,
-    if (node.tap case final tap?) 'tap': _tapToJson(tap),
-    if (node.align case final align?) 'align': _alignmentToJson(align),
-  };
-  switch (node) {
-    case LayoutBox():
-      json.addAll({
-        if (!node.width.isFit) 'width': _lengthToJson(node.width),
-        if (!node.height.isFit) 'height': _lengthToJson(node.height),
-        if (node.background case final background?)
-          'background': _paintToJson(background),
-        if (node.radius != 0) 'radius': node.radius,
-        if (node.borderWidth != 0) 'borderWidth': node.borderWidth,
-        if (node.borderColor case final color?)
-          'borderColor': _colorToJson(color),
-        if (node.childAlignment case final alignment?)
-          'childAlignment': _alignmentToJson(alignment),
-        if (node.clip) 'clip': true,
-        if (node.child case final child?) 'child': _nodeToJson(child),
-      });
-    case LayoutFlex():
-      json.addAll({
-        if (node.mainAxis != LayoutMainAxis.start)
-          'mainAxis': node.mainAxis.name,
-        if (node.crossAxis != LayoutCrossAxis.center)
-          'crossAxis': node.crossAxis.name,
-        if (node.spacing != 0) 'spacing': node.spacing,
-        if (node.startSpacing != 0) 'startSpacing': node.startSpacing,
-        if (node.endSpacing != 0) 'endSpacing': node.endSpacing,
-        if (node.shrinkMain) 'shrinkMain': true,
-        'children': [for (final item in node.items) _nodeToJson(item)],
-      });
-    case LayoutStack():
-      json.addAll({
-        'alignment': _alignmentToJson(node.alignment),
-        'children': [for (final item in node.items) _nodeToJson(item)],
-      });
-    case LayoutTextNode():
-      json.addAll({
-        ...switch (node.content) {
-          LayoutStaticText(:final text) => {'text': text},
-          LayoutParamText(:final paramKey) => {'value': paramKey},
-        },
-        'fontSize': node.fontSize,
-        'fontWeight': node.fontWeight,
-        'color': _paintToJson(node.color),
-        if (node.textAlign != LayoutTextAlign.start)
-          'textAlign': node.textAlign.name,
-        'maxLines': ?node.maxLines,
-        if (node.ellipsis) 'ellipsis': true,
-        if (node.letterSpacing != 0) 'letterSpacing': node.letterSpacing,
-        'lineHeight': ?node.lineHeight,
-        if (node.italic) 'italic': true,
-        if (node.underline) 'underline': true,
-        if (node.strikethrough) 'strikethrough': true,
-        if (node.textCase != LayoutCase.none) 'textCase': node.textCase.name,
-      });
-    case LayoutImage():
-      json.addAll({
-        'asset': node.assetPath,
-        if (!node.width.isFit) 'width': _lengthToJson(node.width),
-        if (!node.height.isFit) 'height': _lengthToJson(node.height),
-        'fit': node.fit.name,
-        if (node.radius != 0) 'radius': node.radius,
-      });
-    case LayoutIcon():
-      json.addAll({
-        'codePoint': node.codePoint,
-        'size': node.size,
-        'color': _paintToJson(node.color),
-      });
-    case LayoutSpacer():
-      break;
-    case LayoutDivider():
-      json.addAll({
-        'space': node.space,
-        'thickness': node.thickness,
-        'color': _colorToJson(node.color),
-        if (node.indent != 0) 'indent': node.indent,
-        if (node.endIndent != 0) 'endIndent': node.endIndent,
-      });
-    case LayoutProgress():
-      json.addAll({
-        'circular': node.circular,
-        'value': node.value.paramKey != null
-            ? {'value': node.value.paramKey}
-            : node.value.value,
-        'color': _colorToJson(node.color),
-        'trackColor': _colorToJson(node.trackColor),
-        'size': node.size,
-        'thickness': node.thickness,
-        if (!node.circular) 'width': _lengthToJson(node.width),
-        if (node.barRadius != 0) 'barRadius': node.barRadius,
-        if (node.startAngle != 0) 'startAngle': node.startAngle,
-      });
-  }
-  return json;
-}
 
 // --- Reading ----------------------------------------------------------------
 
@@ -433,274 +262,17 @@ class _Reader {
     ],
   );
 
-  HomeWidgetLayoutModel layout(Map<String, HomeWidgetValueType> types) =>
-      HomeWidgetLayoutModel(
-        optChild('root')?.node(types),
-        const [],
-        tap: optChild('tap')?.tap(),
+  HomeWidgetLayoutModel layout(Map<String, HomeWidgetValueType> types) {
+    try {
+      return nativeLayoutFromJson(
+        json,
+        types: types,
+        path: path,
+        owner: 'widget',
       );
-
-  LayoutColor color(String key) {
-    final value = json[key];
-    if (value is String) {
-      return LayoutColor.same(_parseHex(value, key));
+    } on NativeLayoutJsonException catch (e) {
+      throw HomeWidgetJsonException(e.path, e.message);
     }
-    if (value is Map<String, Object?>) {
-      final colors = child(key);
-      return LayoutColor(
-        _parseHexOf(colors, 'light'),
-        _parseHexOf(colors, 'dark'),
-      );
-    }
-    fail('expected "#AARRGGBB" or {"light", "dark"}', key);
-  }
-
-  LayoutColor? optColor(String key) => json[key] == null ? null : color(key);
-
-  int _parseHexOf(_Reader reader, String key) =>
-      reader._parseHex(reader.req<String>(key), key);
-
-  int _parseHex(String text, String key) {
-    final hex = text.startsWith('#') ? text.substring(1) : text;
-    final value = int.tryParse(hex, radix: 16);
-    if (value == null || (hex.length != 6 && hex.length != 8)) {
-      fail('expected "#AARRGGBB" or "#RRGGBB"', key);
-    }
-    return hex.length == 6 ? 0xFF000000 | value : value;
-  }
-
-  LayoutPaint paint(String key, LayoutPaint fallback) {
-    final value = json[key];
-    if (value == null) {
-      return fallback;
-    }
-    if (value case {'value': final String paramKey}) {
-      return LayoutPaint.param(paramKey);
-    }
-    return LayoutPaint.fixed(color(key));
-  }
-
-  LayoutLength length(String key, LayoutLength fallback) {
-    final value = json[key];
-    return switch (value) {
-      null => fallback,
-      'fill' => const LayoutLength.fill(),
-      'fit' => const LayoutLength.fit(),
-      num() => LayoutLength.points(value.toDouble()),
-      _ => fail('expected a number, "fill" or "fit"', key),
-    };
-  }
-
-  LayoutAlignment? alignment(String key) {
-    final list = opt<List<Object?>>(key);
-    if (list == null) {
-      return null;
-    }
-    if (list case [num x, num y]) {
-      return LayoutAlignment(x.toDouble(), y.toDouble());
-    }
-    fail('expected [x, y], each from -1 to 1', key);
-  }
-
-  LayoutTap tap() {
-    if (opt<String>('openPage') case final path?) {
-      return LayoutOpenPage(path, [
-        for (final param in children('params'))
-          if (param.opt<String>('value') case final paramKey?)
-            LayoutRouteParam.value(
-              param.req<String>('name'),
-              paramKey,
-              param.enumValue(
-                'format',
-                LayoutRouteFormat.values,
-                LayoutRouteFormat.text,
-              ),
-            )
-          else
-            LayoutRouteParam.constant(
-              param.req<String>('name'),
-              param.req<String>('constant'),
-            ),
-      ]);
-    }
-    if (opt<String>('toggle') case final paramKey?) {
-      return LayoutToggle(paramKey);
-    }
-    if (opt<String>('step') case final paramKey?) {
-      return LayoutStep(
-        paramKey,
-        req<double>('by'),
-        min: opt<double>('min'),
-        max: opt<double>('max'),
-        integer: opt<bool>('integer') ?? false,
-      );
-    }
-    if (opt<bool>('clear') == true) {
-      return const LayoutClear();
-    }
-    fail('expected "openPage", "toggle", "step" or "clear"');
-  }
-
-  List<LayoutNode> items(String key, Map<String, HomeWidgetValueType> types) =>
-      [for (final item in children(key)) item.node(types)];
-
-  LayoutNode node(Map<String, HomeWidgetValueType> types) {
-    final key = req<String>('key');
-    final type = req<String>('type');
-    final LayoutNode node;
-    switch (type) {
-      case 'box':
-        node = LayoutBox(key)
-          ..width = length('width', const LayoutLength.fit())
-          ..height = length('height', const LayoutLength.fit())
-          ..background = json['background'] == null
-              ? null
-              : paint(
-                  'background',
-                  const LayoutPaint.fixed(LayoutColor.same(0)),
-                )
-          ..radius = opt<double>('radius') ?? 0
-          ..borderWidth = opt<double>('borderWidth') ?? 0
-          ..borderColor = optColor('borderColor')
-          ..childAlignment = alignment('childAlignment')
-          ..clip = opt<bool>('clip') ?? false
-          ..child = optChild('child')?.node(types);
-      case 'row' || 'column':
-        node = LayoutFlex(key, horizontal: type == 'row')
-          ..mainAxis = enumValue(
-            'mainAxis',
-            LayoutMainAxis.values,
-            LayoutMainAxis.start,
-          )
-          ..crossAxis = enumValue(
-            'crossAxis',
-            LayoutCrossAxis.values,
-            LayoutCrossAxis.center,
-          )
-          ..spacing = opt<double>('spacing') ?? 0
-          ..startSpacing = opt<double>('startSpacing') ?? 0
-          ..endSpacing = opt<double>('endSpacing') ?? 0
-          ..shrinkMain = opt<bool>('shrinkMain') ?? false;
-        (node as LayoutFlex).items.addAll(items('children', types));
-      case 'stack':
-        node = LayoutStack(key)
-          ..alignment = alignment('alignment') ?? LayoutAlignment.topStart;
-        (node as LayoutStack).items.addAll(items('children', types));
-      case 'text':
-        final LayoutText content;
-        if (opt<String>('value') case final paramKey?) {
-          content = LayoutParamText(
-            paramKey,
-            types[paramKey] ??
-                fail('no value "$paramKey" in the widget\'s values', 'value'),
-          );
-        } else {
-          content = LayoutStaticText(req<String>('text'));
-        }
-        final text = LayoutTextNode(key, content)
-          ..fontSize = opt<double>('fontSize') ?? 14
-          ..fontWeight = opt<num>('fontWeight')?.toInt() ?? 400
-          ..textAlign = enumValue(
-            'textAlign',
-            LayoutTextAlign.values,
-            LayoutTextAlign.start,
-          )
-          ..maxLines = opt<num>('maxLines')?.toInt()
-          ..ellipsis = opt<bool>('ellipsis') ?? false
-          ..letterSpacing = opt<double>('letterSpacing') ?? 0
-          ..lineHeight = opt<double>('lineHeight')
-          ..italic = opt<bool>('italic') ?? false
-          ..underline = opt<bool>('underline') ?? false
-          ..strikethrough = opt<bool>('strikethrough') ?? false
-          ..textCase = enumValue(
-            'textCase',
-            LayoutCase.values,
-            LayoutCase.none,
-          );
-        text.color = paint('color', text.color);
-        node = text;
-      case 'image':
-        node = LayoutImage(key, req<String>('asset'))
-          ..width = length('width', const LayoutLength.fit())
-          ..height = length('height', const LayoutLength.fit())
-          ..fit = enumValue('fit', LayoutFit.values, LayoutFit.contain)
-          ..radius = opt<double>('radius') ?? 0;
-      case 'icon':
-        final codePoint = json['codePoint'];
-        final icon = LayoutIcon(key, switch (codePoint) {
-          int() => codePoint,
-          String()
-              when int.tryParse(
-                    codePoint.replaceFirst(RegExp('^0x'), ''),
-                    radix: 16,
-                  ) !=
-                  null =>
-            int.parse(codePoint.replaceFirst(RegExp('^0x'), ''), radix: 16),
-          _ => fail('expected a Material Icons code point', 'codePoint'),
-        })..size = opt<double>('size') ?? 24;
-        icon.color = paint('color', icon.color);
-        node = icon;
-      case 'spacer':
-        node = LayoutSpacer(key);
-      case 'divider':
-        final divider = LayoutDivider(key)
-          ..space = opt<double>('space') ?? 16
-          ..thickness = opt<double>('thickness') ?? 1
-          ..indent = opt<double>('indent') ?? 0
-          ..endIndent = opt<double>('endIndent') ?? 0;
-        divider.color = optColor('color') ?? divider.color;
-        node = divider;
-      case 'progress':
-        final value = json['value'];
-        final progress =
-            LayoutProgress(
-                key,
-                circular: opt<bool>('circular') ?? false,
-                value: switch (value) {
-                  {'value': final String paramKey} => LayoutFraction.param(
-                    paramKey,
-                  ),
-                  num() => LayoutFraction.fixed(value.toDouble()),
-                  _ => fail(
-                    'expected a number from 0 to 1 or {"value": key}',
-                    'value',
-                  ),
-                },
-              )
-              ..size = opt<double>('size') ?? 100
-              ..thickness = opt<double>('thickness') ?? 5
-              ..width = length('width', const LayoutLength.fill())
-              ..barRadius = opt<double>('barRadius') ?? 0
-              ..startAngle = opt<double>('startAngle') ?? 0;
-        progress
-          ..color = optColor('color') ?? progress.color
-          ..trackColor = optColor('trackColor') ?? progress.trackColor;
-        node = progress;
-      default:
-        fail(
-          'unknown node type; expected box, row, column, stack, text, image, '
-              'icon, spacer, divider or progress',
-          'type',
-        );
-    }
-    if (opt<List<Object?>>('padding') case final padding?) {
-      if (padding case [num l, num t, num r, num b]) {
-        node.padding = LayoutInsets(
-          l.toDouble(),
-          t.toDouble(),
-          r.toDouble(),
-          b.toDouble(),
-        );
-      } else {
-        fail('expected [left, top, right, bottom]', 'padding');
-      }
-    }
-    node
-      ..flex = opt<num>('flex')?.toInt()
-      ..visibleParam = opt<String>('visibleIf')
-      ..tap = optChild('tap')?.tap()
-      ..align = alignment('align');
-    return node;
   }
 }
 

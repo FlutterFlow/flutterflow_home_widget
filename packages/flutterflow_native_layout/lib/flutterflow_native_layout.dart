@@ -8,6 +8,9 @@
 /// [swiftLayoutView] and [remoteViewsLayout], and puts the run time
 /// ([nativeLayoutSwiftBuildingBlocks], [nativeLayoutKotlinViews] and the
 /// constants next to them) in the extension or module once.
+///
+/// A spec written as JSON reads and writes its layouts with the functions of
+/// `package:flutterflow_native_layout/layout_json.dart`.
 library;
 
 export 'src/android/kotlin_runtime.dart';
