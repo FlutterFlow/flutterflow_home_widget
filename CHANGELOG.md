@@ -20,7 +20,7 @@
 - `homeWidgetViewsSwift` is `final` instead of `const`.
 - `flutterflow_native_layout` reads and writes the layout JSON
   (`nativeLayoutFromJson`, `nativeLayoutToJson`); this package's JSON uses
-  it, so the format is the same. The forms only a Live Activity card draws
+  it (`layout_json.dart`), so the format is the same. The forms only a Live Activity card draws
   (`countUp`, an image `value`, `timed` and `stages` bars) are an error in a
   widget's layout instead of being ignored.
 - `flutterflow_live_activity` can be used on its own, as this package can:
@@ -39,6 +39,19 @@
     `FFLiveActivity`. `generateLiveActivityFiles` does not include it
     (`liveActivityTypedApiFiles` does), so its output is unchanged;
   - `example/live_activities.json`.
+- `flutterflow_live_activity apply` checks `iosBundleId` against the
+  Runner's `PRODUCT_BUNDLE_IDENTIFIER` in every build configuration before it
+  writes anything, and refuses with both ids when it does not match (the
+  extension is `<iosBundleId>.LiveActivity`, and iOS rejects one whose id is
+  not prefixed with the app's). A Runner id that is a build setting
+  (`$(...)`) is a warning (`applyLiveActivities` takes `onWarning`). The
+  example spec's `iosBundleId` is now `com.example.courier`, the id
+  `flutter create --org com.example courier` makes.
+- `SpecJsonReader`, `NativeLayoutJsonException`, `nativeLayoutFromJson`,
+  `nativeLayoutToJson`, `layoutColorToJson` and `layoutHex` are no longer
+  exported from `package:flutterflow_native_layout/flutterflow_native_layout.dart`
+  (nor through the main libraries of the two packages that re-export it).
+  Import `package:flutterflow_native_layout/layout_json.dart` for them.
 
 ## 0.2.0
 
