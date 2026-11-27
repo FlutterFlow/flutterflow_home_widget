@@ -72,7 +72,11 @@ void main(List<String> args) {
       stdout.writeln('Wrote ${files.length} files under ${args[2]}.');
     case 'apply':
       try {
-        final written = applyLiveActivities(args[2], app);
+        final written = applyLiveActivities(
+          args[2],
+          app,
+          onWarning: (warning) => stderr.writeln('Warning: $warning'),
+        );
         stdout.writeln('Updated ${written.length} files in ${args[2]}.');
       } on LiveActivityProjectException catch (e) {
         _fail(e.message);

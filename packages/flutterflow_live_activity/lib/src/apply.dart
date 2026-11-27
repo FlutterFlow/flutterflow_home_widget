@@ -22,9 +22,16 @@ import 'package:flutterflow_live_activity/src/spec.dart';
 /// Android needs nothing else: the plugin's manifest (its permissions) is
 /// merged into the app's. Running it again rewrites only the files that
 /// changed and leaves the rest as it is. Nothing is written when the
-/// project cannot take the extension ([LiveActivityProjectException]).
+/// project cannot take the extension ([LiveActivityProjectException]), or
+/// when `iosBundleId` does not match the Runner's bundle id in every build
+/// configuration ([checkRunnerBundleId]). What cannot be checked, such as a
+/// Runner id that is a build setting, goes to [onWarning].
 /// Returns the paths it wrote, relative to [appDir].
-List<String> applyLiveActivities(String appDir, LiveActivityApp app) {
+List<String> applyLiveActivities(
+  String appDir,
+  LiveActivityApp app, {
+  void Function(String warning)? onWarning,
+}) {
   final written = <String>[];
   void write(String path, String content) {
     final file = File('$appDir/$path');
@@ -53,7 +60,9 @@ List<String> applyLiveActivities(String appDir, LiveActivityApp app) {
   };
   if (Directory('$appDir/ios').existsSync()) {
     const pbxproj = 'ios/Runner.xcodeproj/project.pbxproj';
-    files[pbxproj] = addLiveActivityTarget(read(pbxproj), app);
+    final project = read(pbxproj);
+    checkRunnerBundleId(project, app).forEach(onWarning ?? (_) {});
+    files[pbxproj] = addLiveActivityTarget(project, app);
     const infoPlist = 'ios/Runner/Info.plist';
     files[infoPlist] = addLiveActivityInfoPlistEntries(read(infoPlist), app);
     if (app.hasImageValues) {

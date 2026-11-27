@@ -183,6 +183,70 @@ Map<String, String> _runnerDevelopmentTeams(String pbxproj) {
   };
 }
 
+/// The `PRODUCT_BUNDLE_IDENTIFIER` of each of the Runner's build
+/// configurations, by configuration name (`Debug`, `Release`, a flavor's).
+Map<String, String> runnerBundleIds(String pbxproj) {
+  final configuration = RegExp(
+    r'^\t\t[0-9A-F]{24} /\* ([^*]+?) \*/ = \{\n\t\t\tisa = XCBuildConfiguration;(.*?)\n\t\t\};',
+    multiLine: true,
+    dotAll: true,
+  );
+  final id = RegExp(
+    r'^\s*PRODUCT_BUNDLE_IDENTIFIER = "?([^";]+)"?;',
+    multiLine: true,
+  );
+  return {
+    for (final match in configuration.allMatches(pbxproj))
+      if (match[2]!.contains('INFOPLIST_FILE = Runner/Info.plist;'))
+        if (id.firstMatch(match[2]!)?[1] case final value?) match[1]!: value,
+  };
+}
+
+/// Checks [app]'s `iosBundleId` against the Runner's
+/// `PRODUCT_BUNDLE_IDENTIFIER` in every build configuration of [pbxproj].
+///
+/// The extension's id is `<iosBundleId>.LiveActivity`, and iOS rejects an
+/// extension whose id does not start with the app's id and a dot. So in each
+/// configuration `iosBundleId` must be the Runner's id or start with it and
+/// a dot. When a card has an Image value it must be the Runner's id: the
+/// app's keychain group is built from it.
+///
+/// Throws a [LiveActivityProjectException] naming both ids on a mismatch. A
+/// Runner id that is a build setting (`$(...)`), which cannot be resolved
+/// here, or none at all, is returned as a warning instead.
+List<String> checkRunnerBundleId(String pbxproj, LiveActivityApp app) {
+  final specId = app.iosBundleId;
+  final ids = runnerBundleIds(pbxproj);
+  final warnings = <String>[];
+  if (ids.isEmpty) {
+    warnings.add(
+      'project.pbxproj has no Runner PRODUCT_BUNDLE_IDENTIFIER, so the '
+      'spec\'s iosBundleId "$specId" was not checked against the app\'s.',
+    );
+  }
+  for (final MapEntry(key: name, value: runnerId) in ids.entries) {
+    if (runnerId.contains(r'$')) {
+      warnings.add(
+        'The Runner\'s PRODUCT_BUNDLE_IDENTIFIER in $name is "$runnerId", '
+        'which is not known until Xcode builds it, so the spec\'s '
+        'iosBundleId "$specId" was not checked against it. It must be the '
+        'app\'s id.',
+      );
+    } else if (specId != runnerId &&
+        !(specId.startsWith('$runnerId.') && !app.hasImageValues)) {
+      throw LiveActivityProjectException(
+        'The spec\'s iosBundleId "$specId" does not match the Runner\'s '
+        'PRODUCT_BUNDLE_IDENTIFIER in $name, "$runnerId". The extension is '
+        '"$specId.$kLiveActivityIosExtensionTarget", which has to start with '
+        'the app\'s id and a dot'
+        '${app.hasImageValues ? ', and the keychain group is built from the app\'s id' : ''}'
+        '. Set iosBundleId to "$runnerId".',
+      );
+    }
+  }
+  return warnings;
+}
+
 /// [configurations] (fragment 16: the extension's build configurations)
 /// with the Runner's development team of the same configuration, so the
 /// extension signs as the app does.

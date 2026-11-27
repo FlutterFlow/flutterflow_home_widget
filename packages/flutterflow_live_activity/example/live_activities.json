@@ -1,6 +1,6 @@
 {
   "specVersion": 1,
-  "iosBundleId": "io.flutterflow.example.courier",
+  "iosBundleId": "com.example.courier",
   "iosDeviceFamily": "1",
   "routes": { "scheme": "courier", "host": "courier.example.com" },
   "activities": [

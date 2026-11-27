@@ -35,6 +35,10 @@ final _noImages = appWith([
   ),
 ]);
 
+/// The fixture, with the Runner's bundle id (and the test target's) [id].
+String _pbxprojOf(String id) =>
+    _pbxproj.replaceAll('io.flutterflow.example.stock', id);
+
 const _target = '/* $kLiveActivityIosExtensionTarget */ = {';
 const _signRunner = 'CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements;';
 
@@ -206,11 +210,15 @@ dependencies:
 ''');
       File('${dir.path}/ios/Runner.xcodeproj/project.pbxproj')
         ..createSync(recursive: true)
-        ..writeAsStringSync(_pbxproj);
+        ..writeAsStringSync(_pbxprojOf(_example.iosBundleId));
       File('${dir.path}/ios/Runner/Info.plist')
         ..createSync(recursive: true)
         ..writeAsStringSync(_infoPlist);
     });
+
+    void setRunnerProject(String pbxproj) => File(
+      '${dir.path}/ios/Runner.xcodeproj/project.pbxproj',
+    ).writeAsStringSync(pbxproj);
 
     tearDown(() => dir.deleteSync(recursive: true));
 
@@ -241,6 +249,7 @@ dependencies:
     });
 
     test('an app without an Image value has no entitlements', () {
+      setRunnerProject(_pbxprojOf(_noImages.iosBundleId));
       applyLiveActivities(dir.path, _noImages);
       expect(
         File('${dir.path}/ios/Runner/Runner.entitlements').existsSync(),
@@ -271,6 +280,7 @@ dependencies:
 
       // A target added for a spec without Image values.
       File('${dir.path}/pubspec.yaml').writeAsStringSync('dependencies:\n');
+      setRunnerProject(_pbxprojOf(_noImages.iosBundleId));
       applyLiveActivities(dir.path, _noImages);
       before = files();
       expect(
@@ -278,6 +288,108 @@ dependencies:
         throwsA(isA<LiveActivityProjectException>()),
       );
       expect(files(), before);
+    });
+
+    group('the Runner\'s bundle id', () {
+      String files() => [
+        for (final entity in dir.listSync(recursive: true))
+          if (entity is File) '${entity.path}:${entity.readAsStringSync()}',
+      ].join('\n');
+
+      void setRunnerProject(String pbxproj) => File(
+        '${dir.path}/ios/Runner.xcodeproj/project.pbxproj',
+      ).writeAsStringSync(pbxproj);
+
+      test('an id that matches is applied, with no warning', () {
+        final warnings = <String>[];
+        applyLiveActivities(dir.path, _example, onWarning: warnings.add);
+        expect(warnings, isEmpty);
+      });
+
+      test('an id nested under the Runner\'s is applied without images', () {
+        setRunnerProject(_pbxprojOf('com.example'));
+        expect(
+          applyLiveActivities(dir.path, _noImages, onWarning: fail),
+          isNotEmpty,
+        );
+      });
+
+      test('a mismatch refuses, naming both ids, and writes nothing', () {
+        setRunnerProject(_pbxprojOf('com.other.app'));
+        final before = files();
+        expect(
+          () => applyLiveActivities(dir.path, _example),
+          throwsA(
+            isA<LiveActivityProjectException>().having(
+              (e) => e.message,
+              'message',
+              allOf(
+                contains('iosBundleId "${_example.iosBundleId}"'),
+                contains('"com.other.app"'),
+                contains('in Profile'),
+              ),
+            ),
+          ),
+        );
+        expect(files(), before);
+      });
+
+      test('an id that only shares a prefix with the Runner\'s refuses', () {
+        setRunnerProject(_pbxprojOf('${_noImages.iosBundleId}x'));
+        expect(
+          () => applyLiveActivities(dir.path, _noImages),
+          throwsA(isA<LiveActivityProjectException>()),
+        );
+      });
+
+      test('one configuration that does not match refuses, and says which', () {
+        // Release keeps the example's id; Debug and Profile get another.
+        var swapped = 0;
+        final mixed = _pbxprojOf(_example.iosBundleId).replaceAllMapped(
+          RegExp(
+            r'(/\* (Debug|Profile) \*/ = \{\n\t\t\tisa = XCBuildConfiguration;'
+            r'(?:(?!\n\t\t\};).)*?PRODUCT_BUNDLE_IDENTIFIER = )'
+            '${RegExp.escape(_example.iosBundleId)};',
+            dotAll: true,
+          ),
+          (m) {
+            swapped++;
+            return '${m[1]}com.other.app;';
+          },
+        );
+        expect(swapped, greaterThan(0));
+        setRunnerProject(mixed);
+        final before = files();
+        expect(
+          () => applyLiveActivities(dir.path, _example),
+          throwsA(
+            isA<LiveActivityProjectException>().having(
+              (e) => e.message,
+              'message',
+              contains('com.other.app'),
+            ),
+          ),
+        );
+        expect(files(), before);
+      });
+
+      test('an id from a build setting warns and continues', () {
+        setRunnerProject(
+          _pbxproj.replaceAll(
+            'PRODUCT_BUNDLE_IDENTIFIER = io.flutterflow.example.stock;',
+            r'PRODUCT_BUNDLE_IDENTIFIER = "$(APP_BUNDLE_ID)";',
+          ),
+        );
+        final warnings = <String>[];
+        final written = applyLiveActivities(
+          dir.path,
+          _example,
+          onWarning: warnings.add,
+        );
+        expect(written, isNotEmpty);
+        expect(warnings, isNotEmpty);
+        expect(warnings.first, contains(r'$(APP_BUNDLE_ID)'));
+      });
     });
   });
 }

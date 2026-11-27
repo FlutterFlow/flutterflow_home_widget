@@ -23,10 +23,14 @@ FlutterFlow generates its apps' Live Activities with this package.
 
 ```sh
 dart pub global activate --source git https://github.com/FlutterFlow/flutterflow_home_widget.git --git-path packages/flutterflow_live_activity
-flutter create --org com.example my_app
+flutter create --org com.example courier
 flutterflow_live_activity validate live_activities.json
-flutterflow_live_activity apply live_activities.json my_app
+flutterflow_live_activity apply live_activities.json courier
 ```
+
+The spec's `iosBundleId` has to start with the app's own bundle id: here
+`com.example.courier`, as `flutter create` makes it from `--org` and the
+app's name.
 
 `apply` writes the plugin under `packages/ff_live_activity/` (with the
 typed API, below) and the widget extension under `ios/LiveActivity/`, adds
@@ -42,6 +46,14 @@ before writing, so a project it cannot change (no `pubspec.yaml`, an Xcode
 project that is not a `flutter create` one, or a `LiveActivity` target added
 for a spec that has since gained or lost its Custom cards or Image values)
 is left as it was; remove the old target in Xcode first in the last case.
+`iosBundleId` is the app's bundle id (the extension is
+`<iosBundleId>.LiveActivity`): `apply` reads the Runner's
+`PRODUCT_BUNDLE_IDENTIFIER` in every build configuration and refuses when
+`iosBundleId` is neither that id nor starts with it and a dot (iOS rejects an
+extension whose id is not prefixed with the app's). When a card has an Image
+value it has to be the app's id, as the keychain group is built from it. A
+Runner id that is a build setting (`$(...)`) cannot be checked: `apply`
+warns and continues.
 `generate` writes the same files under a directory without touching an app.
 Both refuse a spec with problems; warnings do not stop them.
 
@@ -169,7 +181,8 @@ error, with where it is (`$.activities[0].surfaces.lockScreen.root.value`).
 ```
 
 - **App**: `specVersion` (required; this package reads and writes 1),
-  `iosBundleId`, `iosDeviceFamily` (`"1"` iPhone, `"1,2"` iPhone and iPad),
+  `iosBundleId` (the app's bundle id, as in the Runner's Xcode settings),
+  `iosDeviceFamily` (`"1"` iPhone, `"1,2"` iPhone and iPad),
   `routes` (the deep link `scheme` and `host` a tap that opens a page uses,
   and `encodeTwice`), `activities`.
 - **Activity**: `key` (stable across builds: it names the native types),
