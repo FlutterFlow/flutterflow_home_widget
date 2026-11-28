@@ -84,6 +84,24 @@ void main() {
   });
 
   group('plugin', () {
+    test('a started card outranks the running ones; updates keep the rank', () {
+      // The Lock Screen shows one card of an app at a time, the highest
+      // relevance (default 0, a tie keeps the older card).
+      expect(
+        pluginSwift,
+        contains(RegExp(
+          r'Activity\.request\((?:(?!pushType).)*relevanceScore: Date\(\)\.timeIntervalSince1970',
+          dotAll: true,
+        )),
+      );
+      expect(pluginSwift, isNot(contains('staleDate: nil)')));
+      expect(
+        'relevanceScore: activity.content.relevanceScore'
+            .allMatches(pluginSwift),
+        hasLength(2),
+      );
+    });
+
     test('registers the contract channel and class', () {
       expect(
         pluginSwift,

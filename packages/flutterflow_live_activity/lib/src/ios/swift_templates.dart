@@ -359,7 +359,12 @@ ${before('$kLiveActivityImageStartWaitSeconds', '// Start waits a moment for its
         do {
           _ = try Activity.request(
             attributes: attributes,
-            content: ActivityContent(state: .init(values: values), staleDate: nil),
+            // The Lock Screen and the island show one card of an app at a time,
+            // the one with the highest relevance. A card that starts later
+            // outranks the earlier ones, so a card never starts unseen.
+            content: ActivityContent(
+              state: .init(values: values), staleDate: nil,
+              relevanceScore: Date().timeIntervalSince1970),
             pushType: nil
           )
           result(true)
@@ -377,7 +382,10 @@ ${before('0', '// Update never waits for a picture: the other values change at o
         for activity in running {
           // Only the changed keys arrive; the others keep their value.
           let merged = activity.content.state.values.merging(values) { _, new in new }
-          await activity.update(ActivityContent(state: .init(values: merged), staleDate: nil))
+          await activity.update(
+            ActivityContent(
+              state: .init(values: merged), staleDate: nil,
+              relevanceScore: activity.content.relevanceScore))
         }
         result(!running.isEmpty)
 $after      }
@@ -394,7 +402,9 @@ ${before('$kLiveActivityImageStartWaitSeconds', '// The last content waits a mom
             // The final content: the given keys over the last state.
             let merged = activity.content.state.values.merging(values) { _, new in new }
             await activity.end(
-              ActivityContent(state: .init(values: merged), staleDate: nil),
+              ActivityContent(
+                state: .init(values: merged), staleDate: nil,
+                relevanceScore: activity.content.relevanceScore),
               dismissalPolicy: policy
             )
           }
