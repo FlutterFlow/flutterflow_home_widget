@@ -325,7 +325,10 @@ ${_swiftPixels(targets)}
             && (activity.activityState == .active || activity.activityState == .stale)
           {
             let merged = activity.content.state.values.merging([key: name]) { _, new in new }
-            await activity.update(ActivityContent(state: .init(values: merged), staleDate: nil))
+            await activity.update(
+              ActivityContent(
+                state: .init(values: merged), staleDate: nil,
+                relevanceScore: activity.content.relevanceScore))
           }
         }
         release([name])
